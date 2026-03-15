@@ -15,6 +15,7 @@ use App\Http\Controllers\API\AdminController;
 use App\Http\Controllers\API\BusController;
 use App\Http\Controllers\API\HalteController;
 use App\Http\Controllers\API\BusDriverController;
+use App\Http\Controllers\API\RouteController;
 use App\Http\Controllers\API\RouteHalteController;
 use App\Http\Controllers\API\StudentBusController;
 use App\Http\Controllers\API\GpsTrackController;
@@ -23,9 +24,9 @@ use App\Http\Controllers\API\DailyReportController;
 use App\Http\Controllers\API\ReportController;
 use App\Http\Controllers\API\ActivityController;
 
-// --- ALL USER ---
+// ─── PUBLIC ───────────────────────────────────────────────────
 Route::prefix('auth')->group(function () {
-    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:5,1')->name('login');
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:5,1');
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:3,1');
     Route::middleware(['auth:api', 'check.token.expiration'])->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
@@ -36,8 +37,25 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-// --- ADMIN ONLY ---
+// ─── SEMUA USER LOGIN ─────────────────────────────────────────
+Route::middleware('auth:api')->group(function () {
+    // Rute bus (dipakai siswa & driver untuk lihat jalur)
+    Route::get('buses/{busId}/route', [RouteController::class, 'getByBus']);
+
+    // Halte dalam rute (dipakai siswa untuk lihat halte)
+    Route::get('routes/{id}/haltes', [RouteHalteController::class, 'getHaltesByRoute']);
+
+    // Laporan driver
+    Route::prefix('reports')->group(function () {
+        Route::match(['get', 'post'], 'driver', [ReportController::class, 'getDriverReport']);
+        Route::match(['get', 'post'], 'driver/download-pdf', [ReportController::class, 'downloadDriverReportPDF']);
+        Route::match(['get', 'post'], 'driver/download-excel', [ReportController::class, 'downloadDriverReportExcel']);
+    });
+});
+
+// ─── ADMIN ONLY ───────────────────────────────────────────────
 Route::middleware(['auth:api', 'admin'])->group(function () {
+
     // admins
     Route::get('admins', [AdminController::class, 'index']);
     Route::get('admins/{id}', [AdminController::class, 'show']);
@@ -92,12 +110,27 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::put('haltes/{id}', [HalteController::class, 'update']);
     Route::delete('haltes/{id}', [HalteController::class, 'destroy']);
 
-    // route-haltes (urutan halte dalam rute)
+    // ─── RUTE BUS (RouteController baru) ─────────────────────
+    Route::get('routes', [RouteController::class, 'index']);
+    Route::post('routes', [RouteController::class, 'store']);
+    Route::get('routes/{id}', [RouteController::class, 'show']);
+    Route::put('routes/{id}', [RouteController::class, 'update']);
+    Route::delete('routes/{id}', [RouteController::class, 'destroy']);
+
+    // Sync polyline + halte sekaligus dari RouteBuilderScreen
+    Route::post('routes/{id}/sync', [RouteController::class, 'syncRoute']);
+
+    // Polyline saja
+    Route::post('routes/{id}/polyline', [RouteController::class, 'storePolyline']);
+    Route::get('routes/{id}/polyline', [RouteController::class, 'getPolyline']);
+    Route::delete('routes/{id}/polyline', [RouteController::class, 'destroyPolyline']);
+
+    // Halte dalam rute (CRUD — admin)
     Route::post('routes/{id}/haltes', [RouteHalteController::class, 'storeHalteToRoute']);
     Route::put('route-haltes/{id}', [RouteHalteController::class, 'update']);
     Route::delete('route-haltes/{id}', [RouteHalteController::class, 'destroy']);
 
-    // bus-driver (penugasan)
+    // bus-driver
     Route::get('bus-driver', [BusDriverController::class, 'index']);
     Route::post('bus-driver', [BusDriverController::class, 'store']);
     Route::put('bus-driver/{id}', [BusDriverController::class, 'update']);
@@ -112,8 +145,6 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('gps-tracks/dashboard', [GpsTrackController::class, 'dashboard']);
     Route::get('buses/{id}/gps/latest', [GpsTrackController::class, 'latestByBus']);
     Route::get('buses/{id}/gps', [GpsTrackController::class, 'history']);
-
-    // Offline queue management
     Route::post('gps/process-offline-queue', [GpsTrackController::class, 'processOfflineQueue']);
 
     // attendance
@@ -131,7 +162,7 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::delete('daily-reports/{id}', [DailyReportController::class, 'destroy']);
     Route::get('reports/generate', [DailyReportController::class, 'generateAll']);
 
-    // Activity logs - Security audit trail
+    // Activity logs
     Route::prefix('activity')->group(function () {
         Route::get('logs', [ActivityController::class, 'index']);
         Route::get('dashboard', [ActivityController::class, 'dashboard']);
@@ -140,58 +171,34 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
         Route::delete('cleanup', [ActivityController::class, 'cleanup']);
     });
 
-    // Laporan Harian
+    // Laporan admin
     Route::prefix('reports')->group(function () {
         Route::get('admin', [ReportController::class, 'getAdminReport']);
-        Route::match(['get','post'], 'admin/download-pdf', [ReportController::class, 'downloadAdminReportPDF']);
-        Route::match(['get','post'], 'admin/download-excel', [ReportController::class, 'downloadAdminReportExcel']);
+        Route::match(['get', 'post'], 'admin/download-pdf', [ReportController::class, 'downloadAdminReportPDF']);
+        Route::match(['get', 'post'], 'admin/download-excel', [ReportController::class, 'downloadAdminReportExcel']);
     });
 });
 
-Route::middleware('auth:api')->prefix('reports')->group(function () {
-    Route::match(['get','post'], 'driver', [ReportController::class, 'getDriverReport']);
-    Route::match(['get','post'], 'driver/download-pdf', [ReportController::class, 'downloadDriverReportPDF']);
-    Route::match(['get','post'], 'driver/download-excel', [ReportController::class, 'downloadDriverReportExcel']);
-});
-
-// --- DRIVER ONLY ---
+// ─── DRIVER ONLY ──────────────────────────────────────────────
 Route::middleware(['auth:api', 'driver'])->prefix('driver')->group(function () {
-    // Driver profile & buses
     Route::get('profile', [DriverController::class, 'meDriver']);
     Route::get('buses', [DriverController::class, 'myBuses']);
-
-    // GPS tracking
     Route::post('gps', [GpsTrackController::class, 'storeByDriver']);
     Route::patch('gps', [DriverController::class, 'toggleGpsStatus']);
-
-    // Offline support - sync data kapan koneksi kembali
     Route::get('gps/offline-queue', [GpsTrackController::class, 'getOfflineQueue']);
     Route::get('gps/pending-syncs', [GpsTrackController::class, 'getPendingSyncs']);
     Route::post('gps/confirm-sync', [GpsTrackController::class, 'confirmSync']);
     Route::post('gps/log-status', [GpsTrackController::class, 'logGpsStatus']);
     Route::get('gps/status', [GpsTrackController::class, 'getGpsStatus']);
-
-    // Attendance - Scan siswa masuk & keluar dari bus
     Route::post('attendance/scan', [AttendanceController::class, 'scan']);
     Route::put('attendance/checkout', [AttendanceController::class, 'checkOut']);
-
-    // Laporan Perjalanan Harian
-    Route::get('report', [ReportController::class, 'getDriverReport']);
-    Route::get('report/download-pdf', [ReportController::class, 'downloadDriverReportPDF']);
-    Route::get('report/download-excel', [ReportController::class, 'downloadDriverReportExcel']);
-
-    // Daily report
     Route::get('buses/{busId}/report', [DriverController::class, 'dailyReport']);
 });
 
-
-// --- STUDENT ONLY ---
+// ─── STUDENT ONLY ─────────────────────────────────────────────
 Route::middleware(['auth:api', 'student'])->prefix('student')->group(function () {
-    // Student profile & bus info
     Route::get('profile', [StudentController::class, 'meStudent']);
     Route::post('barcode', [StudentController::class, 'myBarcode']);
     Route::get('bus', [StudentController::class, 'myBus']);
     Route::get('bus/tracking', [StudentController::class, 'getBusTracking']);
 });
-
-Route::get('routes/{id}/haltes', [RouteHalteController::class, 'getHaltesByRoute']);

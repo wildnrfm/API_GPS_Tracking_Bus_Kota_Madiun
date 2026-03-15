@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Route extends Model {
     use HasFactory;
+
     protected $fillable = [
         'bus_id',
         'nama_rute',
@@ -17,6 +18,18 @@ class Route extends Model {
     }
 
     public function haltes() {
-        return $this->belongsToMany(Halte::class, 'route_halte')->withPivot('urutan')->withTimestamps();
+        return $this->belongsToMany(Halte::class, 'route_halte')
+            ->withPivot('urutan')
+            ->withTimestamps()
+            ->orderByPivot('urutan');
+    }
+
+    public function routeHaltes() {
+        return $this->hasMany(RouteHalte::class)->orderBy('urutan');
+    }
+
+    /** Titik-titik polyline jalur bus, berurutan */
+    public function polylines() {
+        return $this->hasMany(RoutePolyline::class)->orderBy('urutan');
     }
 }
