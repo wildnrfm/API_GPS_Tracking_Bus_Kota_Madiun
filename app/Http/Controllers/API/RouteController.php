@@ -68,18 +68,54 @@ class RouteController extends BaseController
         ];
     }
 
+    /**
+     * Format ringkas rute untuk listing (tanpa polyline agar response ringan)
+     */
+    private function formatRouteLight(Route $route): array
+    {
+        return [
+            'id'        => $route->id,
+            'bus_id'    => $route->bus_id,
+            'nama_rute' => $route->nama_rute,
+            'bus'       => $route->bus ? [
+                'id'         => $route->bus->id,
+                'kode_bus'   => $route->bus->kode_bus,
+                'plat_nomor' => $route->bus->plat_nomor,
+            ] : null,
+            'haltes' => $route->routeHaltes
+                ? $route->routeHaltes->sortBy('urutan')->values()->map(fn($rh) => [
+                    'id'       => $rh->id,
+                    'route_id' => $rh->route_id,
+                    'halte_id' => $rh->halte_id,
+                    'urutan'   => $rh->urutan,
+                    'halte'    => $rh->halte ? [
+                        'id'         => $rh->halte->id,
+                        'nama_halte' => $rh->halte->nama_halte,
+                        'alamat'     => $rh->halte->alamat,
+                        'latitude'   => (float) $rh->halte->latitude,
+                        'longitude'  => (float) $rh->halte->longitude,
+                    ] : null,
+                ])->values()->toArray()
+                : [],
+            'polyline'   => [], // tidak dimuat di listing, fetch via show() jika perlu
+            'created_at' => $route->created_at,
+            'updated_at' => $route->updated_at,
+        ];
+    }
+
     // ─── CRUD ─────────────────────────────────────────────────
 
     public function index(Request $request)
     {
         $this->authorizeAdmin($request);
+        // Tidak load polylines di index agar response ringan
+        // Polyline hanya dimuat di show() dan getByBus()
         $routes = Route::with([
             'bus:id,kode_bus,plat_nomor',
             'routeHaltes.halte',
-            'polylines',
         ])->get();
         return $this->responseSuccess(
-            $routes->map(fn($r) => $this->formatRoute($r))->values(),
+            $routes->map(fn($r) => $this->formatRouteLight($r))->values(),
             AppMessages::SUCCESS_RETRIEVED
         );
     }
@@ -269,6 +305,43 @@ class RouteController extends BaseController
         return $this->responseDeleted('Polyline berhasil dihapus');
     }
 
+
+    // ─── Sync halte saja (tanpa polyline) ────────────────────
+
+    /**
+     * POST /routes/{id}/haltes/sync
+     * Body: { "haltes": [{"halte_id": 1, "urutan": 1}, ...] }
+     */
+    public function syncHaltes(Request $request, $id)
+    {
+        $this->authorizeAdmin($request);
+        $route = Route::findOrFail($id);
+
+        $data = $request->validate([
+            'haltes'            => 'required|array|min:1',
+            'haltes.*.halte_id' => 'required|integer|exists:haltes,id',
+            'haltes.*.urutan'   => 'required|integer|min:1',
+        ]);
+
+        DB::transaction(function () use ($route, $data) {
+            RouteHalte::where('route_id', $route->id)->delete();
+            $rows = [];
+            foreach ($data['haltes'] as $h) {
+                $rows[] = [
+                    'route_id'   => $route->id,
+                    'halte_id'   => $h['halte_id'],
+                    'urutan'     => $h['urutan'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+            if ($rows) RouteHalte::insert($rows);
+        });
+
+        $route->load(['bus:id,kode_bus,plat_nomor', 'routeHaltes.halte', 'polylines']);
+        return $this->responseSuccess($this->formatRoute($route), 'Halte rute berhasil disimpan');
+    }
+
     // ─── Endpoint untuk siswa & driver ───────────────────────
 
     public function getByBus(Request $request, $busId)
@@ -282,7 +355,6 @@ class RouteController extends BaseController
         if (!$route) {
             return $this->responseNotFound('Bus ini belum memiliki rute');
         }
-
         return $this->responseSuccess($this->formatRoute($route), AppMessages::SUCCESS_RETRIEVED);
     }
 }

@@ -337,23 +337,24 @@ class StudentController extends BaseController {
         $student = $user->student;
         $buses = $student->buses()->with('routes')->get();
         if ($buses->isEmpty()) {
-            return $this->responseSuccess([], 'Siswa belum ditugaskan ke bus manapun');
+            return $this->responseSuccess(null, 'Siswa belum ditugaskan ke bus manapun');
         }
-        $data = $buses->map(function ($bus) {
-            return [
-                'id' => $bus->id,
-                'code' => $bus->kode_bus,
-                'plate' => $bus->plat_nomor,
-                'status' => $bus->status,
-                'assigned_halte_id' => $bus->pivot->halte_id,
-                'routes' => $bus->routes->map(function ($route) {
-                    return [
-                        'id' => $route->id,
-                        'name' => $route->nama_rute,
-                    ];
-                }),
-            ];
-        });
+        // Ambil bus pertama (siswa hanya punya 1 bus aktif)
+        $bus = $buses->first();
+        $data = [
+            'bus_id'            => $bus->id,   // FE pakai bus_id untuk getRouteByBus
+            'id'                => $bus->id,
+            'kode_bus'          => $bus->kode_bus,
+            'plat_nomor'        => $bus->plat_nomor,
+            'status'            => $bus->status,
+            'assigned_halte_id' => $bus->pivot->halte_id ?? null,
+            'routes'            => $bus->routes->map(function ($route) {
+                return [
+                    'id'   => $route->id,
+                    'name' => $route->nama_rute,
+                ];
+            })->values(),
+        ];
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
@@ -420,8 +421,7 @@ class StudentController extends BaseController {
             'position' => [
                 'latitude' => (float)$gpsTrack->latitude,
                 'longitude' => (float)$gpsTrack->longitude,
-                'speed' => (int)$gpsTrack->speed,
-                'altitude' => (float)$gpsTrack->altitude,
+                'speed' => (float)($gpsTrack->speed ?? 0),
                 'recorded_at' => $gpsTrack->recorded_at,
             ],
         ], 'GPS tracking data retrieved successfully');

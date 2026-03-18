@@ -18,8 +18,8 @@ class BusController extends BaseController {
     // GET daftar semua bus dengan rute
     public function index(Request $request) {
         $this->authorizeAdmin($request);
-        $buses = $this->busService->getAllBuses(15);
-        return $this->responsePaginated($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
+        $buses = $this->busService->getAllBuses();
+        return $this->responseSuccess($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //GET detail bus dan rute
