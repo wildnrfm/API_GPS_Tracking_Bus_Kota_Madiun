@@ -262,7 +262,6 @@ class AttendanceController extends BaseController {
 
     // get daftar absensi dengan filter
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $query = Attendance::with('student.user', 'bus');
         if ($request->has('bus_id')) {
             $query->where('bus_id', $request->input('bus_id'));
@@ -279,14 +278,12 @@ class AttendanceController extends BaseController {
 
     //get detail absensi
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $attendance = Attendance::with('student.user', 'bus')->findOrFail($id);
         return $this->responseSuccess($attendance, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // Get Absensi hari ini berdasarkan bus
     public function byBusToday(Request $request, $busId) {
-        $this->authorizeAdmin($request);
         $bus = Bus::findOrFail($busId);
         $attendance = Attendance::where('bus_id', $busId)->whereDate('tanggal', now()->toDateString())->with('student.user')->orderBy('waktu_naik', 'asc')->get();
         return $this->responseSuccess([
@@ -316,7 +313,6 @@ class AttendanceController extends BaseController {
 
     // delete record absensi
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $attendance = Attendance::findOrFail($id);
         $attendance->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);

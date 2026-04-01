@@ -18,14 +18,12 @@ class AdminController extends BaseController {
 
     // GET daftar semua admin
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $admins = User::where('role', 'admin')->paginate(15);
         return $this->responsePaginated($admins, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // GET detail admin
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $admin = $this->userService->getUserById($id);
         if (!$admin || $admin->role !== 'admin') {
             return $this->responseNotFound(AppMessages::ERROR_USER_NOT_FOUND);
@@ -35,7 +33,6 @@ class AdminController extends BaseController {
 
     // Create admin
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users', 'email')],
@@ -59,7 +56,6 @@ class AdminController extends BaseController {
 
     //update data admin
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $rules = [];
         $messages = [];
         if ($request->has('name')) {
@@ -94,7 +90,6 @@ class AdminController extends BaseController {
 
     // delete admin
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->userService->deleteAdmin($id);
         if (!$result['success']) {
             return $this->responseNotFound($result['error'] ?? AppMessages::ERROR_USER_NOT_FOUND);

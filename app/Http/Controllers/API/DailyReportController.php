@@ -18,7 +18,6 @@ class DailyReportController extends BaseController {
 
     //create laporan harian baru
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'bus_id' => 'required|exists:buses,id',
             'tanggal' => 'required|date_format:Y-m-d',
@@ -84,7 +83,6 @@ class DailyReportController extends BaseController {
 
     // get daftar laporan harian dengan filter
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $query = DailyReport::with('bus', 'driver.user', 'route');
         if ($request->has('bus_id')) {
             $query->where('bus_id', $request->input('bus_id'));
@@ -104,7 +102,6 @@ class DailyReportController extends BaseController {
 
     //get detail laporan harian dengan data pendukung
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $report = DailyReport::with('bus', 'driver.user', 'route')->findOrFail($id);
         $attendances = Attendance::where('bus_id', $report->bus_id)->whereDate('tanggal', $report->tanggal)->with('student.user')->get();
         $gpsCount = GpsTrack::where('bus_id', $report->bus_id)->whereDate('recorded_at', $report->tanggal)->count();
@@ -149,7 +146,6 @@ class DailyReportController extends BaseController {
 
     //update laporan harian
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $report = DailyReport::findOrFail($id);
         $data = $request->validate([
             'km_awal' => 'sometimes|numeric|min:0',
@@ -172,7 +168,6 @@ class DailyReportController extends BaseController {
 
     // delete laporan harian
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $report = DailyReport::findOrFail($id);
         $report->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
@@ -180,7 +175,6 @@ class DailyReportController extends BaseController {
 
     //generate laporan untuk semua bus pada tanggal tertentu
     public function generateAll(Request $request) {
-        $this->authorizeAdmin($request);
         $tanggal = $request->input('tanggal', now()->toDateString());
         $buses = Bus::all();
         $generated = [];

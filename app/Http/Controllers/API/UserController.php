@@ -16,14 +16,12 @@ class UserController extends BaseController {
 
     //GET daftar semua user
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $users = $this->userService->getAllUsers(15);
         return $this->responsePaginated($users, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //get detail user spesifik
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $user = $this->userService->getUserById($id);
         if (!$user) {
             return $this->responseNotFound(AppMessages::ERROR_USER_NOT_FOUND);
@@ -33,7 +31,6 @@ class UserController extends BaseController {
 
     //delete user dan data terkait (driver/student)
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->userService->deleteUserWithCascade($id);
         if (!$result['success']) {
             return $this->responseNotFound($result['error'] ?? AppMessages::ERROR_USER_NOT_FOUND);

@@ -30,6 +30,30 @@ class RouteController extends BaseController
         $this->middleware('auth:api');
     }
 
+    /**
+     * Format data halte untuk response rute (dipakai formatRoute dan formatRouteLight).
+     */
+    private function formatHaltes(Route $route): array
+    {
+        if (!$route->routeHaltes) return [];
+        return $route->routeHaltes->sortBy('urutan')->values()->map(fn($rh) => [
+            'id'       => $rh->id,
+            'route_id' => $rh->route_id,
+            'halte_id' => $rh->halte_id,
+            'urutan'   => $rh->urutan,
+            'halte'    => $rh->halte ? [
+                'id'         => $rh->halte->id,
+                'nama_halte' => $rh->halte->nama_halte,
+                'alamat'     => $rh->halte->alamat,
+                'latitude'   => (float) $rh->halte->latitude,
+                'longitude'  => (float) $rh->halte->longitude,
+            ] : null,
+        ])->values()->toArray();
+    }
+
+    /**
+     * Format lengkap rute termasuk polyline (untuk show/getByBus).
+     */
     private function formatRoute(Route $route): array
     {
         return [
@@ -41,22 +65,8 @@ class RouteController extends BaseController
                 'kode_bus'   => $route->bus->kode_bus,
                 'plat_nomor' => $route->bus->plat_nomor,
             ] : null,
-            'haltes' => $route->routeHaltes
-                ? $route->routeHaltes->sortBy('urutan')->values()->map(fn($rh) => [
-                    'id'       => $rh->id,
-                    'route_id' => $rh->route_id,
-                    'halte_id' => $rh->halte_id,
-                    'urutan'   => $rh->urutan,
-                    'halte'    => $rh->halte ? [
-                        'id'         => $rh->halte->id,
-                        'nama_halte' => $rh->halte->nama_halte,
-                        'alamat'     => $rh->halte->alamat,
-                        'latitude'   => (float) $rh->halte->latitude,
-                        'longitude'  => (float) $rh->halte->longitude,
-                    ] : null,
-                ])->values()->toArray()
-                : [],
-            'polyline' => $route->polylines
+            'haltes'     => $this->formatHaltes($route),
+            'polyline'   => $route->polylines
                 ? $route->polylines->sortBy('urutan')->values()->map(fn($p) => [
                     'urutan'    => $p->urutan,
                     'latitude'  => (float) $p->latitude,
@@ -69,34 +79,20 @@ class RouteController extends BaseController
     }
 
     /**
-     * Format ringkas rute untuk listing (tanpa polyline agar response ringan)
+     * Format ringkas rute untuk listing (tanpa polyline agar response ringan).
      */
     private function formatRouteLight(Route $route): array
     {
         return [
-            'id'        => $route->id,
-            'bus_id'    => $route->bus_id,
-            'nama_rute' => $route->nama_rute,
-            'bus'       => $route->bus ? [
+            'id'         => $route->id,
+            'bus_id'     => $route->bus_id,
+            'nama_rute'  => $route->nama_rute,
+            'bus'        => $route->bus ? [
                 'id'         => $route->bus->id,
                 'kode_bus'   => $route->bus->kode_bus,
                 'plat_nomor' => $route->bus->plat_nomor,
             ] : null,
-            'haltes' => $route->routeHaltes
-                ? $route->routeHaltes->sortBy('urutan')->values()->map(fn($rh) => [
-                    'id'       => $rh->id,
-                    'route_id' => $rh->route_id,
-                    'halte_id' => $rh->halte_id,
-                    'urutan'   => $rh->urutan,
-                    'halte'    => $rh->halte ? [
-                        'id'         => $rh->halte->id,
-                        'nama_halte' => $rh->halte->nama_halte,
-                        'alamat'     => $rh->halte->alamat,
-                        'latitude'   => (float) $rh->halte->latitude,
-                        'longitude'  => (float) $rh->halte->longitude,
-                    ] : null,
-                ])->values()->toArray()
-                : [],
+            'haltes'     => $this->formatHaltes($route),
             'polyline'   => [], // tidak dimuat di listing, fetch via show() jika perlu
             'created_at' => $route->created_at,
             'updated_at' => $route->updated_at,
@@ -107,7 +103,6 @@ class RouteController extends BaseController
 
     public function index(Request $request)
     {
-        $this->authorizeAdmin($request);
         // Tidak load polylines di index agar response ringan
         // Polyline hanya dimuat di show() dan getByBus()
         $routes = Route::with([
@@ -122,7 +117,6 @@ class RouteController extends BaseController
 
     public function show(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         $route = Route::with([
             'bus:id,kode_bus,plat_nomor',
             'routeHaltes.halte',
@@ -133,7 +127,6 @@ class RouteController extends BaseController
 
     public function store(Request $request)
     {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'bus_id'    => 'required|exists:buses,id',
             'nama_rute' => 'required|string|max:150',
@@ -154,7 +147,6 @@ class RouteController extends BaseController
 
     public function update(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         $route = Route::findOrFail($id);
         $data = $request->validate([
             'nama_rute' => 'sometimes|string|max:150',
@@ -174,7 +166,6 @@ class RouteController extends BaseController
 
     public function destroy(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         Route::findOrFail($id)->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }
@@ -199,7 +190,6 @@ class RouteController extends BaseController
      */
     public function syncRoute(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         $route = Route::findOrFail($id);
 
         $data = $request->validate([
@@ -260,7 +250,6 @@ class RouteController extends BaseController
 
     public function storePolyline(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         $route = Route::findOrFail($id);
 
         $data = $request->validate([
@@ -291,7 +280,6 @@ class RouteController extends BaseController
 
     public function getPolyline(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         Route::findOrFail($id);
         $polylines = RoutePolyline::where('route_id', $id)->orderBy('urutan')->get(['urutan', 'latitude', 'longitude']);
         return $this->responseSuccess($polylines, AppMessages::SUCCESS_RETRIEVED);
@@ -299,7 +287,6 @@ class RouteController extends BaseController
 
     public function destroyPolyline(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         Route::findOrFail($id);
         RoutePolyline::where('route_id', $id)->delete();
         return $this->responseDeleted('Polyline berhasil dihapus');
@@ -314,7 +301,6 @@ class RouteController extends BaseController
      */
     public function syncHaltes(Request $request, $id)
     {
-        $this->authorizeAdmin($request);
         $route = Route::findOrFail($id);
 
         $data = $request->validate([

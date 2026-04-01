@@ -17,10 +17,7 @@ class GpsTrackController extends BaseController {
 
     //Simpan lokasi GPS dari driver (untuk mobile)
     public function storeByDriver(Request $request) {
-        $user = $request->user();
-        if ($user->role !== 'driver') {
-            return $this->responseForbidden('Hanya driver yang dapat mengirim lokasi GPS');
-        }
+        $user   = $request->user();
         $driver = $user->driver;
         if (!$driver) {
             return $this->responseNotFound('Profil driver tidak ditemukan');
@@ -75,7 +72,6 @@ class GpsTrackController extends BaseController {
 
     // lokasi GPS terbaru dari semua bus
     public function latest(Request $request) {
-        $this->authorizeAdmin($request);
         $limit = $request->input('limit', 20);
         $latestGps = GpsTrack::select('id', 'bus_id', 'latitude', 'longitude', 'speed', 'recorded_at')->orderBy('recorded_at', 'desc')->limit($limit)->get();
         $groupedByBus = [];
@@ -93,7 +89,6 @@ class GpsTrackController extends BaseController {
 
     //Dashboard admin - lihat semua bus dengan status GPS terbaru
     public function dashboard(Request $request) {
-        $this->authorizeAdmin($request);
         $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
         $dashboardData = [];
         foreach ($buses as $bus) {
@@ -131,7 +126,6 @@ class GpsTrackController extends BaseController {
 
     // getlokasi GPS terbaru bus tertentu
     public function latestByBus(Request $request, $busId) {
-        $this->authorizeAdmin($request);
         $bus = Bus::select('id', 'kode_bus', 'plat_nomor')->findOrFail($busId);
         $gpsTrack = GpsTrack::select('id', 'bus_id', 'latitude', 'longitude', 'speed', 'recorded_at')->where('bus_id', $busId)->orderBy('recorded_at', 'desc')->first();
         if (!$gpsTrack) {
@@ -151,7 +145,6 @@ class GpsTrackController extends BaseController {
 
     // Riwayat GPS bus tertentu
     public function history(Request $request, $busId) {
-        $this->authorizeAdmin($request);
         Bus::findOrFail($busId);
         $query = GpsTrack::where('bus_id', $busId);
         if ($request->has('date')) {
@@ -164,7 +157,6 @@ class GpsTrackController extends BaseController {
 
     //get GPS dengan filter
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $query = GpsTrack::with('bus');
         if ($request->has('bus_id')) {
             $query->where('bus_id', $request->input('bus_id'));
@@ -245,7 +237,6 @@ class GpsTrackController extends BaseController {
 
     // proses antrian offline dan retry request yang gagal
     public function processOfflineQueue(Request $request) {
-        $this->authorizeAdmin($request);
         $processedCount = OfflineDataService::processPendingRequests();
         return $this->responseSuccess([
             'processed_count' => $processedCount

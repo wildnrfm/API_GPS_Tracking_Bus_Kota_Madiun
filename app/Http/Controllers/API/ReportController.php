@@ -26,7 +26,6 @@ class ReportController extends BaseController {
 
     //get Laporan admin - summary semua bus
     public function getAdminReport(Request $request) {
-        $this->authorizeAdmin($request);
         $request->validate([
             'tanggal' => 'required|date_format:Y-m-d',
         ], [
@@ -106,7 +105,6 @@ class ReportController extends BaseController {
     //GET: ?tanggal=YYYY-MM-DD
     // POST: { "tanggal": "YYYY-MM-DD" }
     public function downloadAdminReportPDF(Request $request) {
-        $this->authorizeAdmin($request);
         $request->validate([
             'tanggal' => 'required|date_format:Y-m-d',
         ]);
@@ -147,18 +145,10 @@ class ReportController extends BaseController {
             'tanggal' => 'required|date_format:Y-m-d',
             'catatan_driver' => 'nullable|string',
         ]);
-        $busId = $request->input('bus_id');
-        $tanggal = $request->input('tanggal');
+        $busId         = $request->input('bus_id');
+        $tanggal       = $request->input('tanggal');
         $catatanDriver = $request->input('catatan_driver');
-        DailyReport::updateOrCreate(
-            [
-                'bus_id' => $busId,
-                'tanggal' => $tanggal,
-            ],
-            [
-                'catatan_driver' => $catatanDriver ?? DB::raw('catatan_driver'),
-            ]
-        );
+        $this->saveCatatanDriver($busId, $tanggal, $catatanDriver);
         $pdfContent = $this->reportGenerator->generateDriverReportPDF($busId, $tanggal);
         $filename = "driver_report_{$busId}_{$tanggal}.pdf";
         return response($pdfContent, 200)->header('Content-Type', 'application/pdf')->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
@@ -166,7 +156,6 @@ class ReportController extends BaseController {
 
     // Download laporan admin sebagai Excel (XLSX)
     public function downloadAdminReportExcel(Request $request) {
-        $this->authorizeAdmin($request);
         $request->validate([
             'tanggal' => 'required|date_format:Y-m-d',
         ]);
@@ -190,18 +179,10 @@ class ReportController extends BaseController {
             'tanggal' => 'required|date_format:Y-m-d',
             'catatan_driver' => 'nullable|string',
         ]);
-        $busId = $request->input('bus_id');
-        $tanggal = $request->input('tanggal');
+        $busId         = $request->input('bus_id');
+        $tanggal       = $request->input('tanggal');
         $catatanDriver = $request->input('catatan_driver');
-        DailyReport::updateOrCreate(
-            [
-                'bus_id' => $busId,
-                'tanggal' => $tanggal,
-            ],
-            [
-                'catatan_driver' => $catatanDriver ?? DB::raw('catatan_driver'),
-            ]
-        );
+        $this->saveCatatanDriver($busId, $tanggal, $catatanDriver);
         if (!$busId && $request->user() && $request->user()->role === 'driver') {
             $driver = $request->user()->driver;
             if ($driver) {
@@ -239,6 +220,18 @@ class ReportController extends BaseController {
         }
         $csv = $this->arrayToCsv($rows);
         return response($csv, 200)->header('Content-Type', 'text/csv')->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
+    }
+
+    /**
+     * Simpan catatan driver ke DailyReport (dipakai PDF dan Excel).
+     * Extracted dari downloadDriverReportPDF dan downloadDriverReportExcel untuk menghindari duplikasi.
+     */
+    private function saveCatatanDriver(?int $busId, string $tanggal, ?string $catatanDriver): void {
+        if (!$busId) return;
+        DailyReport::updateOrCreate(
+            ['bus_id' => $busId, 'tanggal' => $tanggal],
+            ['catatan_driver' => $catatanDriver ?? DB::raw('catatan_driver')]
+        );
     }
 
     private function arrayToCsv(array $rows): string {

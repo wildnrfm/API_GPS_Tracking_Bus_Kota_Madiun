@@ -17,21 +17,18 @@ class BusController extends BaseController {
 
     // GET daftar semua bus dengan rute
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $buses = $this->busService->getAllBuses();
         return $this->responseSuccess($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //GET detail bus dan rute
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $bus = $this->busService->getBusById($id);
         return $this->responseSuccess($bus, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //create bus
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'kode_bus' => 'required|string|max:20|unique:buses',
             'plat_nomor' => 'required|string|max:15|unique:buses',
@@ -55,7 +52,6 @@ class BusController extends BaseController {
 
     //update data bus
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $this->busService->getBusById($id);
         $data = $request->validate([
             'kode_bus' => 'sometimes|string|max:20|unique:buses,kode_bus,' . $id,
@@ -77,7 +73,6 @@ class BusController extends BaseController {
 
     // delete bus
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->busService->deleteBus($id);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -87,21 +82,18 @@ class BusController extends BaseController {
 
     // get daftar siswa yang terdaftar di bus
     public function students(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $students = $this->busService->getBusStudents($id);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //get daftar driver yang pernah di bus ini
     public function drivers(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $drivers = $this->busService->getBusDrivers($id);
         return $this->responsePaginated($drivers, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //get driver yang sedang aktif di bus ini
     public function activeDriver(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $activeDriver = $this->busService->getActiveDriver($id);
         if (!$activeDriver) {
             return $this->responseNotFound('Tidak ada driver aktif yang ditugaskan ke bus ini');
@@ -111,7 +103,6 @@ class BusController extends BaseController {
 
     //post driver ke bus
     public function assignDriver(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'driver_id' => ['required', Rule::exists('drivers', 'id')],
             'tanggal_mulai' => 'required|date',

@@ -15,7 +15,6 @@ class BusDriverController extends BaseController {
 
     //get daftar penugasan driver (active/expired)
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $status = $request->query('status', 'active');
         $query = BusDriver::with('bus', 'driver.user');
         if ($status === 'active') {
@@ -29,7 +28,6 @@ class BusDriverController extends BaseController {
 
     //create penugasan driver ke bus
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'bus_id' => 'required|exists:buses,id',
             'driver_id' => ['required', Rule::exists('drivers', 'id')],
@@ -51,7 +49,6 @@ class BusDriverController extends BaseController {
 
     //update penugasan driver
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $busDriver = BusDriver::findOrFail($id);
         $data = $request->validate([
             'tanggal_mulai' => 'sometimes|date',
@@ -67,7 +64,6 @@ class BusDriverController extends BaseController {
 
     //delete penugasan driver
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $busDriver = BusDriver::findOrFail($id);
         $busDriver->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);

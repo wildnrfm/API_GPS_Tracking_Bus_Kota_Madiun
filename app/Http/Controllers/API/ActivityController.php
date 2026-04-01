@@ -14,7 +14,6 @@ class ActivityController extends BaseController {
     }
 
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $query = ActivityLog::with('user');
         if ($request->has('action')) {
             $query->where('action', $request->action);
@@ -40,7 +39,6 @@ class ActivityController extends BaseController {
 
     // get security dashboard summary
     public function dashboard(Request $request) {
-        $this->authorizeAdmin($request);
         $recentLogins = ActivityLog::where('action', 'login')->where('status', 'success')->where('created_at', '>', now()->subHours(24))->count();
 
         // Failed login attempts (24 jam terakhir)
@@ -77,7 +75,6 @@ class ActivityController extends BaseController {
 
     //get user activity summary
     public function userActivity(Request $request, $userId) {
-        $this->authorizeAdmin($request);
         $user = User::find($userId);
         if (!$user) {
             return $this->responseNotFound(AppMessages::ERROR_USER_NOT_FOUND);
@@ -102,7 +99,6 @@ class ActivityController extends BaseController {
 
     // Export activity logs as CSV (excel)
     public function export(Request $request) {
-        $this->authorizeAdmin($request);
         $query = ActivityLog::with('user');
         if ($request->has('action')) {
             $query->where('action', $request->action);
@@ -137,7 +133,6 @@ class ActivityController extends BaseController {
 
     // Cleanup activity logs lebih lama dari X hari
     public function cleanup(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'days' => 'required|integer|min:1',
         ], [

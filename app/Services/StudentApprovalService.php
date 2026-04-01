@@ -4,26 +4,21 @@ namespace App\Services;
 
 use App\Models\Student;
 use App\Models\User;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
+use App\Traits\CreatesUser;
 
 class StudentApprovalService {
-    public function createStudent(array $studentData, array $userData){
+    use CreatesUser;
+
+    public function createStudent(array $studentData, array $userData) {
         try {
-            $user = User::create([
-                'name' => $userData['name'],
-                'email' => $userData['email'],
-                'password' => Hash::make($userData['password']),
-                'role' => 'siswa',
-                'api_token' => Str::random(60),
-            ]);
+            $user    = $this->createUser('siswa', $userData);
             $student = Student::create([
-                'user_id' => $user->id,
-                'nis' => $studentData['nis'],
-                'sekolah' => $studentData['sekolah'],
-                'kelas' => $studentData['kelas'] ?? 'Belum ditentukan',
-                'alamat' => $studentData['alamat'],
-                'no_hp' => $studentData['no_hp'],
+                'user_id'         => $user->id,
+                'nis'             => $studentData['nis'],
+                'sekolah'         => $studentData['sekolah'],
+                'kelas'           => $studentData['kelas'] ?? 'Belum ditentukan',
+                'alamat'          => $studentData['alamat'],
+                'no_hp'           => $studentData['no_hp'],
                 'approval_status' => $studentData['approval_status'] ?? 'pending',
             ]);
             return $student->load('user');
@@ -32,27 +27,9 @@ class StudentApprovalService {
         }
     }
 
-    public function updateStudent(Student $student, array $data){
+    public function updateStudent(Student $student, array $data) {
         try {
-            $user = $student->user;
-            $userFields = [];
-            $studentFields = [];
-            foreach ($data as $key => $value) {
-                if (in_array($key, ['name', 'email', 'password'])) {
-                    $userFields[$key] = $value;
-                } else {
-                    $studentFields[$key] = $value;
-                }
-            }
-            if (!empty($userFields)) {
-                if (isset($userFields['password'])) {
-                    $userFields['password'] = Hash::make($userFields['password']);
-                }
-                $user->update($userFields);
-            }
-            if (!empty($studentFields)) {
-                $student->update($studentFields);
-            }
+            $this->updateUserAndProfile($student->user, $student, $data);
             return $student->refresh()->load('user');
         } catch (\Exception $e) {
             throw new \Exception('Failed to update student: ' . $e->getMessage());
@@ -72,12 +49,12 @@ class StudentApprovalService {
         }
     }
 
-    public function rejectStudent(Student $student, string $reason){
+    public function rejectStudent(Student $student, string $reason) {
         if ($student->approval_status !== 'pending') {
             throw new \Exception('Hanya siswa dengan status pending yang dapat ditolak');
         }
         try {
-            $student->approval_status = 'rejected';
+            $student->approval_status  = 'rejected';
             $student->rejection_reason = $reason;
             $student->save();
             return $student->load('user');
@@ -86,15 +63,13 @@ class StudentApprovalService {
         }
     }
 
-    public function deleteStudent(Student $student){
+    public function deleteStudent(Student $student) {
         try {
             $userId = $student->user_id;
             $student->delete();
             if ($userId) {
                 $user = User::find($userId);
-                if ($user) {
-                    $user->delete();
-                }
+                if ($user) $user->delete();
             }
             return true;
         } catch (\Exception $e) {
@@ -106,11 +81,11 @@ class StudentApprovalService {
         return Student::where('approval_status', 'pending')->with('user')->paginate($perPage);
     }
 
-    public function getApprovedStudents($perPage = 15){
+    public function getApprovedStudents($perPage = 15) {
         return Student::where('approval_status', 'approved')->with('user')->paginate($perPage);
     }
 
-    public function getRejectedStudents($perPage = 15){
+    public function getRejectedStudents($perPage = 15) {
         return Student::where('approval_status', 'rejected')->with('user')->paginate($perPage);
     }
 }

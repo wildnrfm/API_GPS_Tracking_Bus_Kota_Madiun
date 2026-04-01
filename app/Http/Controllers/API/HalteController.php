@@ -14,21 +14,18 @@ class HalteController extends BaseController {
 
     //get daftar semua halte (tanpa pagination agar FE bisa load semua sekaligus)
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $haltes = Halte::orderBy('nama_halte')->get();
         return $this->responseSuccess($haltes, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //get detail halte 
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $halte = Halte::findOrFail($id);
         return $this->responseSuccess($halte, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //create halte
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'nama_halte' => 'required|string|max:150',
             'alamat'     => 'nullable|string|max:500',
@@ -52,7 +49,6 @@ class HalteController extends BaseController {
 
     //update data halte
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $halte = Halte::findOrFail($id);
         $data = $request->validate([
             'nama_halte' => 'sometimes|string|max:150',
@@ -72,7 +68,6 @@ class HalteController extends BaseController {
 
     //delete halte
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $halte = Halte::findOrFail($id);
         $halte->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);

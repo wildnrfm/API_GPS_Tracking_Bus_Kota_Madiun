@@ -15,7 +15,6 @@ class RouteHalteController extends BaseController {
 
     //post halte ke rute
     public function storeHalteToRoute(Request $request, $routeId) {
-        $this->authorizeAdmin($request);
         Route::findOrFail($routeId);
         $data = $request->validate([
             'halte_id' => 'required|exists:haltes,id',
@@ -45,7 +44,6 @@ class RouteHalteController extends BaseController {
 
     //update urutan halte dalam rute
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $routeHalte = RouteHalte::findOrFail($id);
         $data = $request->validate([
             'urutan' => 'sometimes|integer|min:1',
@@ -65,7 +63,6 @@ class RouteHalteController extends BaseController {
 
     //delete halte dari rute
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $routeHalte = RouteHalte::findOrFail($id);
         $routeHalte->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);

@@ -15,14 +15,12 @@ class StudentBusController extends BaseController {
 
     //get daftar penugasan siswa ke bus
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $assignments = StudentBus::with('student.user', 'bus', 'halte')->paginate(15);
         return $this->responsePaginated($assignments, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //post siswa ke bus
     public function assignStudentToBus(Request $request, $busId) {
-        $this->authorizeAdmin($request);
         Bus::findOrFail($busId);
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
@@ -52,7 +50,6 @@ class StudentBusController extends BaseController {
 
     //update penugasan siswa (change halte)
     public function update(Request $request, $busId, $studentId) {
-        $this->authorizeAdmin($request);
         Bus::findOrFail($busId);
         $studentBus = StudentBus::where('bus_id', $busId)->where('student_id', $studentId)->firstOrFail();
         $data = $request->validate([
@@ -70,7 +67,6 @@ class StudentBusController extends BaseController {
 
     //delete penugasan siswa dari bus
     public function destroy(Request $request, $busId, $studentId) {
-        $this->authorizeAdmin($request);
         Bus::findOrFail($busId);
         $studentBus = StudentBus::where('bus_id', $busId)->where('student_id', $studentId)->firstOrFail();
         $studentBus->delete();

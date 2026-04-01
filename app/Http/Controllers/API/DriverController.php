@@ -20,21 +20,18 @@ class DriverController extends BaseController {
 
     //Get daftar semua driver (admin only)
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $drivers = $this->driverService->getAllDrivers(15);
         return $this->responsePaginated($drivers, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //Get detail driver (admin only)
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $driver = $this->driverService->getDriverById($id);
         return $this->responseSuccess($driver, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //create driver (admin only)
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users', 'email')],
@@ -55,7 +52,6 @@ class DriverController extends BaseController {
 
     //Update driver (admin only)
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $rules = [];
         $messages = [];
         if ($request->has('name')) {
@@ -106,7 +102,6 @@ class DriverController extends BaseController {
 
     //delete driver (admin only)
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->driverService->deleteDriver($id);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -116,14 +111,12 @@ class DriverController extends BaseController {
 
     //Get bus assignments history dari driver (admin only)
     public function history(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $history = $this->driverService->getDriverBusHistory($id);
         return $this->responsePaginated($history, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // get profile driver yang sedang login
     public function meDriver(Request $request) {
-        $this->authorizeDriver($request);
         $user = $request->user();
         $driver = $user->driver()->with('user')->first();
         if (!$driver) {
@@ -146,9 +139,6 @@ class DriverController extends BaseController {
 
     //get bus assignments aktif dari driver yang login
     public function myBuses(Request $request) {
-        if (!$this->isDriver($request)) {
-            return $this->responseForbidden(AppMessages::ERROR_DRIVER_ACCESS_ONLY);
-        }
         $driver = $request->user()->driver;
         if (!$driver) {
             return $this->responseNotFound(AppMessages::ERROR_DRIVER_NOT_FOUND);
@@ -160,9 +150,6 @@ class DriverController extends BaseController {
 
     //Toggle GPS status dari bus yang ditugaskan
     public function toggleGpsStatus(Request $request) {
-        if (!$this->isDriver($request)) {
-            return $this->responseForbidden(AppMessages::ERROR_DRIVER_ACCESS_ONLY);
-        }
         $driver = $request->user()->driver;
         if (!$driver) {
             return $this->responseNotFound(AppMessages::ERROR_DRIVER_NOT_FOUND);
@@ -197,9 +184,6 @@ class DriverController extends BaseController {
 
     //Get daily report untuk bus
     public function dailyReport(Request $request, $busId) {
-        if (!$this->isDriver($request)) {
-            return $this->responseForbidden(AppMessages::ERROR_DRIVER_ACCESS_ONLY);
-        }
         $driver = $request->user()->driver;
         if (!$driver) {
             return $this->responseNotFound(AppMessages::ERROR_DRIVER_NOT_FOUND);

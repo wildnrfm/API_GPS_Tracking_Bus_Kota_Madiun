@@ -23,21 +23,18 @@ class StudentController extends BaseController {
 
     //Get semua siswa 
     public function index(Request $request) {
-        $this->authorizeAdmin($request);
         $students = $this->studentService->getAllStudents(15);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // detail siswa 
     public function show(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $student = $this->studentService->getStudentById($id);
         return $this->responseSuccess($student, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //tambah siswa baru 
     public function store(Request $request) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users', 'email')],
@@ -60,7 +57,6 @@ class StudentController extends BaseController {
 
     // Update siswa 
     public function update(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $rules = [];
         $messages = [];
         if ($request->has('name')) {
@@ -119,7 +115,6 @@ class StudentController extends BaseController {
 
     //delete siswa 
     public function destroy(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->studentService->deleteStudent($id);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -129,14 +124,12 @@ class StudentController extends BaseController {
 
     //Get daftar siswa pending approval 
     public function pending(Request $request) {
-        $this->authorizeAdmin($request);
         $students = $this->studentService->getPendingStudents(15);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // Approve siswa 
     public function approve(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $result = $this->studentService->approveStudent($id);
         if (!$result['success']) {
             return $this->responseConflict($result['error']);
@@ -149,7 +142,6 @@ class StudentController extends BaseController {
 
     // Reject siswa 
     public function reject(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $data = $request->validate([
             'reason' => 'required|string|max:500',
         ], [
@@ -168,7 +160,6 @@ class StudentController extends BaseController {
 
     // Suspend (nonaktifkan) siswa
     public function suspend(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $student = \App\Models\Student::where('user_id', $id)->firstOrFail();
         $user = $student->user;
         $user->is_suspended = true;
@@ -181,7 +172,6 @@ class StudentController extends BaseController {
 
     // Unsuspend (aktifkan kembali) siswa
     public function unsuspend(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $student = \App\Models\Student::where('user_id', $id)->firstOrFail();
         $user = $student->user;
         $user->is_suspended = false;
@@ -194,7 +184,6 @@ class StudentController extends BaseController {
 
     //Generate barcode siswa 
     public function barcode(Request $request, $id) {
-        $this->authorizeAdmin($request);
         $barcodeText = $this->studentService->generateBarcodeText($id);
         $qrCodeUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' . urlencode($barcodeText);
         $qrCodeData = @file_get_contents($qrCodeUrl);
@@ -206,7 +195,6 @@ class StudentController extends BaseController {
 
     //Get data siswa yang sedang login
     public function meStudent(Request $request) {
-        $this->authorizeStudent($request);
         $user = $request->user();
         $student = $user->student;
         return $this->responseSuccess([
@@ -228,7 +216,6 @@ class StudentController extends BaseController {
     //Generate QR code untuk check-in siswa
     //Auto-detect bus & halte terdekat dari GPS siswa,Input latitude & longitude saja
     public function myBarcode(Request $request) {
-        $this->authorizeStudent($request);
 
         //Validate GPS input dengan pesan custom
         $data = $request->validate([
@@ -332,7 +319,6 @@ class StudentController extends BaseController {
 
     //get bus yang ditugaskan untuk siswa
     public function myBus(Request $request) {
-        $this->authorizeStudent($request);
         $user = $request->user();
         $student = $user->student;
         $buses = $student->buses()->with('routes')->get();
@@ -360,7 +346,6 @@ class StudentController extends BaseController {
 
     //Get real-time tracking bus siswa
     public function myBusTracking(Request $request) {
-        $this->authorizeStudent($request);
         $user = $request->user();
         $student = $user->student;
         $buses = $student->buses()->get();
@@ -400,7 +385,6 @@ class StudentController extends BaseController {
 
     //get data GPS terbaru untuk bus yang ditugaskan kepada siswa
     public function getBusTracking(Request $request) {
-        $this->authorizeStudent($request);
         $user = $request->user();
         $student = $user->student;
         if (!$student) {
