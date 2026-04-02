@@ -120,13 +120,8 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     // Sync polyline + halte sekaligus dari RouteBuilderScreen
     Route::post('routes/{id}/sync', [RouteController::class, 'syncRoute']);
 
-    // Sync/replace daftar halte dalam rute (urutan halte)
-    Route::post('routes/{id}/haltes/sync', [RouteController::class, 'syncHaltes']);
-
     // Polyline saja
-    Route::post('routes/{id}/polyline', [RouteController::class, 'storePolyline']);
-    Route::get('routes/{id}/polyline', [RouteController::class, 'getPolyline']);
-    Route::delete('routes/{id}/polyline', [RouteController::class, 'destroyPolyline']);
+    // Polyline disimpan via POST /routes/{id}/sync bersama halte
 
     // Halte dalam rute (CRUD — admin)
     Route::post('routes/{id}/haltes', [RouteHalteController::class, 'storeHalteToRoute']);
