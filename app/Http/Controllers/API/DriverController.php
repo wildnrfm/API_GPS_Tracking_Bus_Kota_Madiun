@@ -162,14 +162,14 @@ class DriverController extends BaseController {
             return $this->responseForbidden(AppMessages::ERROR_BUS_NOT_ASSIGNED);
         }
         if ($data['gps_status'] === 'on') {
-            // Create new GPS record
+            // Catat GPS awal saat driver aktifkan tracking
+            // Gunakan $assignment->pivot->bus_id (bukan $assignment->id yang merupakan ID pivot row)
             GpsTrack::create([
-                'bus_id' => $assignment->id,
-                'driver_id' => $driver->id,
-                'latitude' => 0.0, // Default 
-                'longitude' => 0.0, // Default
-                'created_at' => now(),
-                'updated_at' => now(),
+                'bus_id'      => $assignment->pivot->bus_id,
+                'latitude'    => 0.0,
+                'longitude'   => 0.0,
+                'speed'       => 0,
+                'recorded_at' => now(),
             ]);
         }
         $assignment->pivot->update([

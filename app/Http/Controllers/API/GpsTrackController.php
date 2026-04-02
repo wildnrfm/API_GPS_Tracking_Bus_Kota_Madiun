@@ -92,7 +92,13 @@ class GpsTrackController extends BaseController {
         $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
         $dashboardData = [];
         foreach ($buses as $bus) {
-            $latestGps = GpsTrack::select('id', 'bus_id', 'latitude', 'longitude', 'speed', 'recorded_at')->where('bus_id', $bus->id)->orderBy('recorded_at', 'desc')->first();
+            // [FIX] Filter lat/lng = 0 agar current_position null bila belum ada GPS nyata
+            $latestGps = GpsTrack::select('id', 'bus_id', 'latitude', 'longitude', 'speed', 'recorded_at')
+                ->where('bus_id', $bus->id)
+                ->where('latitude', '!=', 0)
+                ->where('longitude', '!=', 0)
+                ->orderBy('recorded_at', 'desc')
+                ->first();
             $activeDriver = BusDriver::select('id', 'bus_id', 'driver_id', 'gps_status', 'last_gps_update')->where('bus_id', $bus->id)->where(function($q) {
                     $q->whereNull('tanggal_selesai')->orWhere('tanggal_selesai', '>=', now()->toDateString());
                 })->with('driver:id,user_id,no_hp', 'driver.user:id,name')->first();
@@ -167,6 +173,77 @@ class GpsTrackController extends BaseController {
         }
         $gpsData = $query->orderBy('recorded_at', 'desc')->paginate($request->input('per_page', 50));
         return $this->responsePaginated($gpsData, AppMessages::SUCCESS_RETRIEVED);
+    }
+
+    /**
+     * SSE — stream posisi GPS semua bus secara real-time ke admin.
+     * Admin subscribe sekali, server kirim update setiap 3 detik.
+     * Tidak butuh WebSocket / Pusher / Redis.
+     */
+    public function stream(Request $request) {
+        $user = $request->user();
+        if (!$user || $user->role !== 'admin') {
+            abort(403, 'Forbidden');
+        }
+
+        return response()->stream(function () {
+            $maxIterations = 200; // ~10 menit maksimum
+            $i = 0;
+            while ($i < $maxIterations) {
+                if (connection_aborted()) break;
+
+                $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
+                $payload = [];
+                foreach ($buses as $bus) {
+                    $gps = GpsTrack::select('latitude', 'longitude', 'speed', 'recorded_at')
+                        ->where('bus_id', $bus->id)
+                        ->where('latitude', '!=', 0)
+                        ->where('longitude', '!=', 0)
+                        ->orderBy('recorded_at', 'desc')
+                        ->first();
+
+                    $activeDriver = BusDriver::select('gps_status', 'last_gps_update', 'driver_id')
+                        ->where('bus_id', $bus->id)
+                        ->where(function ($q) {
+                            $q->whereNull('tanggal_selesai')
+                              ->orWhere('tanggal_selesai', '>=', now()->toDateString());
+                        })
+                        ->with('driver:id,user_id', 'driver.user:id,name')
+                        ->first();
+
+                    $payload[] = [
+                        'bus_id'      => $bus->id,
+                        'bus_code'    => $bus->kode_bus,
+                        'bus_plate'   => $bus->plat_nomor,
+                        'gps_status'  => $activeDriver?->gps_status ?? 'off',
+                        'driver_name' => $activeDriver?->driver?->user?->name ?? '',
+                        'position'    => $gps ? [
+                            'latitude'    => (float) $gps->latitude,
+                            'longitude'   => (float) $gps->longitude,
+                            'speed'       => (float) $gps->speed,
+                            'recorded_at' => (string) $gps->recorded_at,
+                        ] : null,
+                    ];
+                }
+
+                echo "data: " . json_encode($payload) . "\n\n";
+                if (ob_get_level() > 0) ob_flush();
+                flush();
+
+                sleep(3);
+                $i++;
+            }
+            echo "data: " . json_encode(['type' => 'close']) . "\n\n";
+            if (ob_get_level() > 0) ob_flush();
+            flush();
+        }, 200, [
+            'Content-Type'                     => 'text/event-stream',
+            'Cache-Control'                    => 'no-cache',
+            'X-Accel-Buffering'                => 'no',
+            'Connection'                       => 'keep-alive',
+            'Access-Control-Allow-Origin'      => '*',
+            'Access-Control-Allow-Credentials' => 'true',
+        ]);
     }
 
     //get antrian offline untuk device

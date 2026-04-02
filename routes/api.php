@@ -141,6 +141,7 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('gps-tracks', [GpsTrackController::class, 'index']);
     Route::get('gps-tracks/latest', [GpsTrackController::class, 'latest']);
     Route::get('gps-tracks/dashboard', [GpsTrackController::class, 'dashboard']);
+    Route::get('gps-tracks/stream', [GpsTrackController::class, 'stream']); // SSE real-time
     Route::get('buses/{id}/gps/latest', [GpsTrackController::class, 'latestByBus']);
     Route::get('buses/{id}/gps', [GpsTrackController::class, 'history']);
     Route::post('gps/process-offline-queue', [GpsTrackController::class, 'processOfflineQueue']);
