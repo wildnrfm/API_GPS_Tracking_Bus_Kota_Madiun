@@ -52,10 +52,61 @@ class AuthService {
             'description' => 'User berhasil login',
             'status'      => 'success',
         ]);
+        // Untuk driver: sertakan data bus aktif langsung di response login
+        // sehingga Flutter tidak perlu request tambahan GET /driver/buses
+        $busData = null;
+        if ($user->role === 'driver' && $user->driver) {
+            $today = now()->toDateString();
+            $bus = $user->driver->buses()
+                ->wherePivot('tanggal_mulai', '<=', $today)
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('bus_driver.tanggal_selesai')
+                      ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
+                })
+                ->with(['routes.haltes', 'routes.polylines'])
+                ->first();
+
+            if ($bus) {
+                $busData = [
+                    'id'         => $bus->id,
+                    'kode_bus'   => $bus->kode_bus,
+                    'plat_nomor' => $bus->plat_nomor,
+                    'status'     => $bus->status,
+                    'assignment' => [
+                        'tanggal_mulai'   => $bus->pivot->tanggal_mulai,
+                        'tanggal_selesai' => $bus->pivot->tanggal_selesai,
+                        'gps_status'      => $bus->pivot->gps_status,
+                        'last_gps_update' => $bus->pivot->last_gps_update,
+                    ],
+                    'routes' => $bus->routes->map(fn($r) => [
+                        'id'        => $r->id,
+                        'bus_id'    => $bus->id,
+                        'nama_rute' => $r->nama_rute,
+                        'haltes'    => $r->haltes->map(fn($h) => [
+                            'id'         => $h->id,
+                            'nama_halte' => $h->nama_halte,
+                            'latitude'   => (float) $h->latitude,
+                            'longitude'  => (float) $h->longitude,
+                            'urutan'     => $h->pivot->urutan,
+                        ])->sortBy('urutan')->values(),
+                        'polyline'  => $r->polylines->map(fn($p) => [
+                            'latitude'  => (float) $p->latitude,
+                            'longitude' => (float) $p->longitude,
+                            'urutan'    => $p->urutan,
+                        ])->values(),
+                    ])->values(),
+                ];
+            }
+        }
+
+        // Load relasi driver/student agar Flutter tidak perlu /auth/me tambahan
+        $user->loadMissing(['driver', 'student']);
+
         return [
             'token'            => $user->api_token,
-            'user'             => $user,
+            'user'             => $user,  // sudah include relasi driver/student
             'token_expires_at' => $user->token_expires_at,
+            'bus'              => $busData, // null jika bukan driver / belum dapat bus
         ];
     }
 

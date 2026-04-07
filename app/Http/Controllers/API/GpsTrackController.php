@@ -9,6 +9,7 @@ use App\Services\OfflineDataService;
 use App\Constants\AppMessages;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class GpsTrackController extends BaseController {
     public function __construct() {
@@ -36,23 +37,54 @@ class GpsTrackController extends BaseController {
             return $this->responseForbidden('Bus tidak operasional. Status: ' . ($bus->status ?? 'tidak aktif'));
         }
         $data = $request->validate([
-            'latitude' => 'required|numeric|between:-90,90',
-            'longitude' => 'required|numeric|between:-180,180',
-            'speed' => 'nullable|numeric|min:0',
+            'latitude'         => 'required|numeric|between:-90,90',
+            'longitude'        => 'required|numeric|between:-180,180',
+            'speed'            => 'nullable|numeric|min:0',
+            'accuracy'         => 'nullable|numeric|min:0',
+            'heading'          => 'nullable|numeric|between:0,360',
+            'device_timestamp' => 'nullable|integer',
         ], [
             'latitude.required' => 'Latitude harus diisi',
-            'latitude.between' => 'Latitude harus antara -90 dan 90',
-            'longitude.required' => 'Longitude harus diisi',
+            'latitude.between'  => 'Latitude harus antara -90 dan 90',
+            'longitude.required'=> 'Longitude harus diisi',
             'longitude.between' => 'Longitude harus antara -180 dan 180',
-            'speed.numeric' => 'Kecepatan harus berupa angka',
+            'speed.numeric'     => 'Kecepatan harus berupa angka',
         ]);
+
+        // Tolak data GPS dengan akurasi sangat buruk (> 50 meter)
+        // Ini menghindari lokasi yang melompat jauh saat sinyal lemah
+        $accuracy = $data['accuracy'] ?? null;
+        if ($accuracy !== null && $accuracy > 50) {
+            return $this->responseSuccess([
+                'skipped' => true,
+                'reason'  => 'Akurasi GPS terlalu rendah (' . round($accuracy) . 'm)',
+            ], 'Data GPS dilewati karena akurasi rendah');
+        }
+
+        // recorded_at = server time (now()) agar urutan query MAX(recorded_at) akurat
+        // device_timestamp = waktu dari perangkat untuk referensi (bisa beda timezone)
+        $deviceTs = isset($data['device_timestamp'])
+            ? Carbon::createFromTimestampMs($data['device_timestamp'])
+            : now();
+
+        // Speed negatif dari geolocator artinya tidak tersedia — set 0
+        $speed = max(0, $data['speed'] ?? 0);
+
         $gpsTrack = GpsTrack::create([
-            'bus_id' => $busId,
-            'latitude' => $data['latitude'],
-            'longitude' => $data['longitude'],
-            'speed' => $data['speed'] ?? 0,
-            'recorded_at' => now(),
+            'bus_id'           => $busId,
+            'latitude'         => $data['latitude'],
+            'longitude'        => $data['longitude'],
+            'speed'            => round($speed, 2),
+            'accuracy'         => $accuracy ? round($accuracy, 1) : null,
+            'heading'          => isset($data['heading']) ? round($data['heading'], 1) : null,
+            'device_timestamp' => $deviceTs,
+            'recorded_at'      => now(), // selalu server time untuk konsistensi sorting
         ]);
+
+        // Update last_gps_update agar auto-reset 5 menit tidak salah terpicu
+        // saat driver aktif tapi tidak bergerak (distanceFilter)
+        $activeAssignment->update(['last_gps_update' => now()]);
+
         OfflineDataService::logDataSync(
             'gps_track',
             $gpsTrack->id,
@@ -89,44 +121,96 @@ class GpsTrackController extends BaseController {
 
     //Dashboard admin - lihat semua bus dengan status GPS terbaru
     public function dashboard(Request $request) {
+        $today = now()->toDateString();
+        $now   = now();
+
+        // Load semua bus sekaligus (hindari N+1)
         $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
-        $dashboardData = [];
-        foreach ($buses as $bus) {
-            // [FIX] Filter lat/lng = 0 agar current_position null bila belum ada GPS nyata
-            $latestGps = GpsTrack::select('id', 'bus_id', 'latitude', 'longitude', 'speed', 'recorded_at')
-                ->where('bus_id', $bus->id)
+        $busIds = $buses->pluck('id');
+
+        // Load GPS terbaru per bus — pakai MAX(recorded_at) bukan MAX(id)
+        // karena id tidak menjamin urutan waktu (device_timestamp bisa berbeda)
+        $latestGpsMap = GpsTrack::select('bus_id',
+                DB::raw('MAX(recorded_at) as max_recorded'))
+            ->whereIn('bus_id', $busIds)
+            ->where('latitude', '!=', 0)
+            ->where('longitude', '!=', 0)
+            ->groupBy('bus_id')
+            ->get()
+            ->pluck('max_recorded', 'bus_id');
+
+        // Ambil record yang sesuai dengan recorded_at terbaru per bus
+        $gpsRecords = collect();
+        foreach ($latestGpsMap as $busId => $maxRecorded) {
+            $record = GpsTrack::where('bus_id', $busId)
+                ->where('recorded_at', $maxRecorded)
                 ->where('latitude', '!=', 0)
                 ->where('longitude', '!=', 0)
-                ->orderBy('recorded_at', 'desc')
-                ->first();
-            $activeDriver = BusDriver::select('id', 'bus_id', 'driver_id', 'gps_status', 'last_gps_update')->where('bus_id', $bus->id)->where(function($q) {
-                    $q->whereNull('tanggal_selesai')->orWhere('tanggal_selesai', '>=', now()->toDateString());
-                })->with('driver:id,user_id,no_hp', 'driver.user:id,name')->first();
-            $gpsStatus = $activeDriver ? $activeDriver->gps_status : 'off';
-            $lastGpsUpdate = $activeDriver ? $activeDriver->last_gps_update : null;
-            $dashboardData[] = [
-                'bus_id' => $bus->id,
-                'bus_code' => $bus->kode_bus,
-                'bus_plate' => $bus->plat_nomor,
-                'gps_status' => $gpsStatus,
-                'last_gps_update' => $lastGpsUpdate,
-                'current_position' => $latestGps ? [
-                    'latitude' => $latestGps->latitude,
-                    'longitude' => $latestGps->longitude,
-                    'speed' => $latestGps->speed,
-                    'recorded_at' => $latestGps->recorded_at,
+                ->first(['id', 'bus_id', 'latitude', 'longitude', 'speed', 'accuracy', 'heading', 'recorded_at']);
+            if ($record) $gpsRecords->put($busId, $record);
+        }
+
+        // Load assignment aktif per bus dalam 1 query
+        $assignments = BusDriver::select('id', 'bus_id', 'driver_id', 'gps_status', 'last_gps_update')
+            ->whereIn('bus_id', $busIds)
+            ->where(function($q) use ($today) {
+                $q->whereNull('tanggal_selesai')
+                  ->orWhere('tanggal_selesai', '>=', $today);
+            })
+            ->with('driver:id,user_id,no_hp', 'driver.user:id,name')
+            ->get()
+            ->keyBy('bus_id');
+
+        // Auto-reset GPS yang stale:
+        // - gps_status = 'on' tapi last_gps_update NULL (sesi lama yang tidak pernah kirim koordinat)
+        // - gps_status = 'on' tapi last_gps_update sudah > 5 menit yang lalu
+        $staleIds = $assignments->filter(function($a) use ($now) {
+            if ($a->gps_status !== 'on') return false;
+            // NULL last_gps_update = toggle ON dari sesi lama, langsung reset
+            if (!$a->last_gps_update) return true;
+            // Ada last_gps_update tapi sudah > 5 menit
+            return $now->diffInMinutes(Carbon::parse($a->last_gps_update)) > 5;
+        })->pluck('id');
+
+        if ($staleIds->isNotEmpty()) {
+            BusDriver::whereIn('id', $staleIds)->update(['gps_status' => 'off']);
+            $assignments->whereIn('id', $staleIds->all())
+                ->each(fn($a) => $a->gps_status = 'off');
+        }
+
+        $dashboardData = $buses->map(function ($bus) use ($gpsRecords, $assignments) {
+            $gps        = $gpsRecords->get($bus->id);
+            $assignment = $assignments->get($bus->id);
+            $gpsStatus  = $assignment?->gps_status ?? 'off';
+
+            return [
+                'bus_id'          => $bus->id,
+                'bus_code'        => $bus->kode_bus,
+                'bus_plate'       => $bus->plat_nomor,
+                'gps_status'      => $gpsStatus,
+                'last_gps_update' => $assignment?->last_gps_update,
+                // Kirim current_position HANYA jika GPS sedang aktif (on)
+                // Jika off, kirim null agar Flutter tidak tampilkan marker
+                'current_position' => ($gpsStatus === 'on' && $gps) ? [
+                    'latitude'    => (float) $gps->latitude,
+                    'longitude'   => (float) $gps->longitude,
+                    'speed'       => (float) $gps->speed,
+                    'accuracy'    => $gps->accuracy ? (float) $gps->accuracy : null,
+                    'heading'     => $gps->heading ? (float) $gps->heading : null,
+                    'recorded_at' => (string) $gps->recorded_at,
                 ] : null,
-                'driver' => $activeDriver && $activeDriver->driver && $activeDriver->driver->user ? [
-                    'id' => $activeDriver->driver->id,
-                    'name' => $activeDriver->driver->user->name,
-                    'phone' => $activeDriver->driver->no_hp,
+                'driver' => $assignment?->driver?->user ? [
+                    'id'    => $assignment->driver->id,
+                    'name'  => $assignment->driver->user->name,
+                    'phone' => $assignment->driver->no_hp,
                 ] : null,
             ];
-        }
+        })->values();
+
         return $this->responseSuccess([
-            'count' => count($dashboardData),
-            'data' => $dashboardData,
-            'timestamp' => now()
+            'count'     => $dashboardData->count(),
+            'data'      => $dashboardData,
+            'timestamp' => now(),
         ], AppMessages::SUCCESS_RETRIEVED);
     }
 

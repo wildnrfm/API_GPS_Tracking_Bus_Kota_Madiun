@@ -12,6 +12,9 @@ class GpsTrack extends Model {
         'latitude',
         'longitude',
         'speed',
+        'accuracy',
+        'heading',
+        'device_timestamp',
         'recorded_at',
     ];
 

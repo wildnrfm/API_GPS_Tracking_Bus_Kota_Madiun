@@ -81,10 +81,58 @@ class AuthController extends BaseController {
 
     //Get data user yang sedang login
     public function me(Request $request) {
-        return $this->responseSuccess(
-            $request->user(),
-            'Data user berhasil diambil'
-        );
+        $user = $request->user();
+        $user->loadMissing(['driver', 'student']);
+
+        $busData = null;
+        if ($user->role === 'driver' && $user->driver) {
+            $today = now()->toDateString();
+            $bus = $user->driver->buses()
+                ->wherePivot('tanggal_mulai', '<=', $today)
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('bus_driver.tanggal_selesai')
+                      ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
+                })
+                ->with(['routes.haltes', 'routes.polylines'])
+                ->first();
+
+            if ($bus) {
+                $busData = [
+                    'id'         => $bus->id,
+                    'kode_bus'   => $bus->kode_bus,
+                    'plat_nomor' => $bus->plat_nomor,
+                    'status'     => $bus->status,
+                    'assignment' => [
+                        'tanggal_mulai'   => $bus->pivot->tanggal_mulai,
+                        'tanggal_selesai' => $bus->pivot->tanggal_selesai,
+                        'gps_status'      => $bus->pivot->gps_status,
+                        'last_gps_update' => $bus->pivot->last_gps_update,
+                    ],
+                    'routes' => $bus->routes->map(fn($r) => [
+                        'id'        => $r->id,
+                        'bus_id'    => $bus->id,
+                        'nama_rute' => $r->nama_rute,
+                        'haltes'    => $r->haltes->map(fn($h) => [
+                            'id'         => $h->id,
+                            'nama_halte' => $h->nama_halte,
+                            'latitude'   => (float) $h->latitude,
+                            'longitude'  => (float) $h->longitude,
+                            'urutan'     => $h->pivot->urutan,
+                        ])->sortBy('urutan')->values(),
+                        'polyline'  => $r->polylines->map(fn($p) => [
+                            'latitude'  => (float) $p->latitude,
+                            'longitude' => (float) $p->longitude,
+                            'urutan'    => $p->urutan,
+                        ])->values(),
+                    ])->values(),
+                ];
+            }
+        }
+
+        return $this->responseSuccess([
+            'user' => $user,
+            'bus'  => $busData,
+        ], 'Data user berhasil diambil');
     }
 
     //update password user
@@ -153,4 +201,3 @@ class AuthController extends BaseController {
         ], 'Foto profil berhasil diperbarui');
     }
 }
-

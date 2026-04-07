@@ -4,18 +4,77 @@ namespace App\Services;
 
 use App\Models\Bus;
 use App\Models\BusDriver;
+use Carbon\Carbon;
 
 class BusService {
-    public function getAllBuses($perPage = 15) {
-        // Include active driver dalam response
-        return Bus::with(['routes', 'drivers' => function($q) {
-            $today = now()->toDateString();
+    public function getAllBuses() {
+        $today = now()->toDateString();
+
+        $buses = Bus::with(['routes', 'drivers' => function($q) use ($today) {
             $q->wherePivot('tanggal_mulai', '<=', $today)
               ->where(function ($q2) use ($today) {
                   $q2->whereNull('bus_driver.tanggal_selesai')
                      ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
               })->with('user');
-        }])->paginate($perPage);
+        }])->get();
+
+        // Map manual agar gps_status & current_position ikut ter-serialize
+        return $buses->map(function ($bus) {
+            $assignment = $bus->drivers->first()?->pivot ?? null;
+
+            // Auto-reset GPS:
+            // - NULL last_gps_update = sesi lama yang tidak pernah kirim koordinat
+            // - last_gps_update > 5 menit lalu = driver crash/force-close
+            $rawGpsStatus = $assignment?->gps_status ?? 'off';
+            $lastUpdate   = $assignment?->last_gps_update;
+            $gpsStatus    = $rawGpsStatus;
+            if ($rawGpsStatus === 'on') {
+                if (!$lastUpdate) {
+                    // NULL → langsung reset
+                    $gpsStatus = 'off';
+                    $assignment?->update(['gps_status' => 'off']);
+                } elseif (now()->diffInMinutes(Carbon::parse($lastUpdate)) > 5) {
+                    $gpsStatus = 'off';
+                    $assignment?->update(['gps_status' => 'off']);
+                }
+            }
+
+            $latest = \App\Models\GpsTrack::where('bus_id', $bus->id)
+                ->where('latitude', '!=', 0)
+                ->where('longitude', '!=', 0)
+                ->orderBy('recorded_at', 'desc')
+                ->first(['latitude', 'longitude', 'speed', 'recorded_at']);
+
+            return [
+                'id'              => $bus->id,
+                'kode_bus'        => $bus->kode_bus,
+                'plat_nomor'      => $bus->plat_nomor,
+                'status'          => $bus->status,
+                'gps_status'      => $gpsStatus,
+                'last_gps_update' => $assignment?->last_gps_update,
+                // current_position hanya dikirim jika GPS sedang aktif
+                'current_position' => ($gpsStatus === 'on' && $latest) ? [
+                    'latitude'    => (float) $latest->latitude,
+                    'longitude'   => (float) $latest->longitude,
+                    'speed'       => (float) $latest->speed,
+                    'recorded_at' => (string) $latest->recorded_at,
+                ] : null,
+                'routes'  => $bus->routes->map(fn($r) => [
+                    'id'        => $r->id,
+                    'nama_rute' => $r->nama_rute,
+                ])->values(),
+                'drivers' => $bus->drivers->map(fn($d) => [
+                    'id'      => $d->id,
+                    'user_id' => $d->user_id,
+                    'user'    => ['id' => $d->user?->id, 'name' => $d->user?->name],
+                    'pivot'   => [
+                        'tanggal_selesai' => $d->pivot->tanggal_selesai,
+                        'gps_status'      => $d->pivot->gps_status,
+                    ],
+                ])->values(),
+                'created_at' => (string) $bus->created_at,
+            ];
+        })->values();
     }
 
     public function getBusById($id) {
