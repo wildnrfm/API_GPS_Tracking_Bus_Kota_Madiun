@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Services\DriverService;
 use App\Constants\AppMessages;
 use App\Models\Bus;
+use App\Models\BusDriver;
 use App\Models\Attendance;
 use App\Models\GpsTrack;
 use Illuminate\Http\Request;
@@ -157,28 +158,36 @@ class DriverController extends BaseController {
         $data = $request->validate([
             'gps_status' => 'required|in:on,off',
         ]);
-        $assignment = $driver->buses()->wherePivotNull('tanggal_selesai')->orWherePivot('tanggal_selesai', '>=', now()->toDateString())->first();
-        if (!$assignment) {
+        // Cari assignment aktif via BusDriver model — scopeActive() sudah handle
+        // kondisi NULL dan tanggal_selesai >= hari ini dengan grouping yang benar
+        $busDriver = BusDriver::where('driver_id', $driver->id)
+            ->active()
+            ->latest('created_at')
+            ->first();
+        if (!$busDriver) {
             return $this->responseForbidden(AppMessages::ERROR_BUS_NOT_ASSIGNED);
+        }
+        $bus = Bus::find($busDriver->bus_id);
+        if (!$bus || $bus->status !== 'aktif') {
+            return $this->responseForbidden('Bus tidak aktif');
         }
         if ($data['gps_status'] === 'on') {
             // Catat GPS awal saat driver aktifkan tracking
-            // Gunakan $assignment->pivot->bus_id (bukan $assignment->id yang merupakan ID pivot row)
             GpsTrack::create([
-                'bus_id'      => $assignment->pivot->bus_id,
+                'bus_id'      => $busDriver->bus_id,
                 'latitude'    => 0.0,
                 'longitude'   => 0.0,
                 'speed'       => 0,
                 'recorded_at' => now(),
             ]);
         }
-        $assignment->pivot->update([
-            'gps_status' => $data['gps_status'],
-            'last_gps_update' => $data['gps_status'] === 'on' ? now() : $assignment->pivot->last_gps_update,
+        $busDriver->update([
+            'gps_status'      => $data['gps_status'],
+            'last_gps_update' => $data['gps_status'] === 'on' ? now() : $busDriver->last_gps_update,
         ]);
         return $this->responseSuccess([
-            'gps_status' => $data['gps_status'],
-            'last_gps_update' => $assignment->pivot->last_gps_update,
+            'gps_status'      => $data['gps_status'],
+            'last_gps_update' => $busDriver->last_gps_update,
         ], AppMessages::SUCCESS_GPS_STATUS_UPDATED);
     }
 

@@ -151,6 +151,8 @@ class GpsTrackController extends BaseController {
         }
 
         // Load assignment aktif per bus dalam 1 query
+        // Urutkan: gps_status='on' dulu, lalu terbaru — agar saat keyBy('bus_id')
+        // assignment yang aktif GPS-nya yang menang jika ada lebih dari 1 per bus
         $assignments = BusDriver::select('id', 'bus_id', 'driver_id', 'gps_status', 'last_gps_update')
             ->whereIn('bus_id', $busIds)
             ->where(function($q) use ($today) {
@@ -158,6 +160,8 @@ class GpsTrackController extends BaseController {
                   ->orWhere('tanggal_selesai', '>=', $today);
             })
             ->with('driver:id,user_id,no_hp', 'driver.user:id,name')
+            ->orderByRaw("CASE WHEN gps_status = 'on' THEN 0 ELSE 1 END")
+            ->orderBy('last_gps_update', 'desc')
             ->get()
             ->keyBy('bus_id');
 
