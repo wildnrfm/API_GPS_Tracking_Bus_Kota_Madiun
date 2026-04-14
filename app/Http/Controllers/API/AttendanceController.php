@@ -72,7 +72,35 @@ class AttendanceController extends BaseController {
         // Validate Siswa di-assign ke bus ini
         $studentBusAssignment = StudentBus::where('student_id', $student->id)->where('bus_id', $bus->id)->first();
         if (!$studentBusAssignment) {
-            return $this->responseForbidden('Siswa tidak ditugaskan ke bus ini');
+            // Ambil info bus yang seharusnya digunakan siswa (untuk pesan error yang informatif)
+            $correctAssignment = StudentBus::where('student_id', $student->id)
+                ->with(['bus.routes'])
+                ->first();
+
+            $correctBusInfo = null;
+            if ($correctAssignment && $correctAssignment->bus) {
+                $correctBus = $correctAssignment->bus;
+                $correctRoute = $correctBus->routes->first();
+                $correctBusInfo = [
+                    'bus_id'    => $correctBus->id,
+                    'kode_bus'  => $correctBus->kode_bus,
+                    'nama_rute' => $correctRoute ? $correctRoute->nama_rute : '-',
+                ];
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Rute tidak sesuai. Siswa ini tidak terdaftar di bus ini.',
+                'error_type' => 'route_mismatch',
+                'student_name' => $student->user->name,
+                'student_nis'  => $student->nis,
+                'scanned_bus'  => [
+                    'bus_id'    => $bus->id,
+                    'kode_bus'  => $bus->kode_bus,
+                    'nama_rute' => $bus->routes->first()->nama_rute ?? '-',
+                ],
+                'correct_bus' => $correctBusInfo,
+            ], 403);
         }
 
         //Validate Jarak driver dengan siswa < 100m (gunakan halte sebagai proksi)
@@ -83,8 +111,11 @@ class AttendanceController extends BaseController {
             $halte->latitude,
             $halte->longitude
         );
-        if ($distance > 100) {
-            return $this->responseError("Jarak siswa dengan halte terlalu jauh ({$distance}m, diperlukan <100m)", 400);
+        // Development: batas dinonaktifkan agar bisa test tanpa GPS asli
+        // Production: ganti kembali ke 100
+        $maxDistance = env('APP_ENV') === 'production' ? 100 : 999999;
+        if ($distance > $maxDistance) {
+            return $this->responseError("Jarak siswa dengan halte terlalu jauh ({$distance}m, diperlukan <{$maxDistance}m)", 400);
         }
 
         // pastikan tidak ada sesi terbuka untuk siswa pada tanggal ini (belum checkout)
@@ -169,16 +200,25 @@ class AttendanceController extends BaseController {
             $dailyReport->increment('total_penumpang');
         }
 
+        // Ambil info rute bus
+        $route = $bus->routes->first();
+
         return $this->responseCreated([
             'attendance_id' => $attendance->id,
-            'student_id' => $attendance->student_id,
-            'student_name' => $student->user->name,
-            'student_nis' => $student->nis,
-            'bus_id' => $attendance->bus_id,
-            'bus_code' => $bus->kode_bus,
-            'halte_naik' => $halte->nama_halte,
-            'waktu_naik' => $attendance->waktu_naik,
+            'student_id'    => $attendance->student_id,
+            'student_name'  => $student->user->name,
+            'student_nis'   => $student->nis,
+            'bus_id'        => $attendance->bus_id,
+            'bus_code'      => $bus->kode_bus,
+            'halte_naik'    => $halte->nama_halte,
+            'waktu_naik'    => $attendance->waktu_naik,
             'distance_valid' => true,
+            'route_info'    => [
+                'route_id'   => $route?->id,
+                'nama_rute'  => $route?->nama_rute ?? '-',
+                'kode_bus'   => $bus->kode_bus,
+                'plat_nomor' => $bus->plat_nomor,
+            ],
         ], 'Siswa berhasil check-in');
     }
 

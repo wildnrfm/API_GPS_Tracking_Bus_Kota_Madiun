@@ -28,6 +28,8 @@ use App\Http\Controllers\API\ActivityController;
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:5,1');
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:3,1');
+    // Polling status approval — tidak butuh token, cukup email
+    Route::post('check-approval', [AuthController::class, 'checkApproval'])->middleware('throttle:30,1');
     Route::middleware(['auth:api', 'check.token.expiration'])->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);

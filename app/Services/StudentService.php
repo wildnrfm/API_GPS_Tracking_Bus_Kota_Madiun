@@ -2,24 +2,30 @@
 
 namespace App\Services;
 
+use App\Mail\StudentApprovedMail;
+use App\Mail\StudentRejectedMail;
 use App\Models\Student;
 use App\Models\User;
 use App\Traits\CreatesUser;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class StudentService {
     use CreatesUser;
 
     public function getAllStudents($perPage = 15) {
-        return Student::with('user')->paginate($perPage);
+        return Student::with(['user', 'buses.routes', 'halte'])->paginate($perPage);
     }
 
     public function getStudentById($id) {
-        return Student::with('user')->findOrFail($id);
+        return Student::with(['user', 'buses.routes', 'halte'])->findOrFail($id);
     }
 
     public function getPendingStudents($perPage = 15) {
-        return Student::where('approval_status', 'pending')->with('user')->paginate($perPage);
+        return Student::where('approval_status', 'pending')
+            ->with(['user', 'buses.routes', 'halte'])
+            ->paginate($perPage);
     }
 
     public function createStudent($data) {
@@ -90,7 +96,17 @@ class StudentService {
             }
             $student->approval_status = 'approved';
             $student->save();
-            return ['success' => true, 'student' => $student->load('user')];
+            $student->load('user');
+
+            // Kirim email notifikasi approve ke siswa
+            try {
+                Mail::to($student->user->email)->send(new StudentApprovedMail($student));
+            } catch (\Exception $mailEx) {
+                // Gagal kirim email tidak menggagalkan proses approve
+                Log::warning('Gagal kirim email approve ke ' . $student->user->email . ': ' . $mailEx->getMessage());
+            }
+
+            return ['success' => true, 'student' => $student];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Gagal approve siswa: ' . $e->getMessage()];
         }
@@ -105,7 +121,16 @@ class StudentService {
             $student->approval_status    = 'rejected';
             $student->rejection_reason   = $reason;
             $student->save();
-            return ['success' => true, 'student' => $student->load('user')];
+            $student->load('user');
+
+            // Kirim email notifikasi reject ke siswa
+            try {
+                Mail::to($student->user->email)->send(new StudentRejectedMail($student, $reason));
+            } catch (\Exception $mailEx) {
+                Log::warning('Gagal kirim email reject ke ' . $student->user->email . ': ' . $mailEx->getMessage());
+            }
+
+            return ['success' => true, 'student' => $student];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Gagal reject siswa: ' . $e->getMessage()];
         }

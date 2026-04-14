@@ -21,16 +21,17 @@ class StudentController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    //Get semua siswa 
+    //Get semua siswa (dengan info bus & rute)
     public function index(Request $request) {
-        $students = $this->studentService->getAllStudents(15);
-        return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
+        $paginator = $this->studentService->getAllStudents(15);
+        $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
+        return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    // detail siswa 
+    // detail siswa
     public function show(Request $request, $id) {
         $student = $this->studentService->getStudentById($id);
-        return $this->responseSuccess($student, AppMessages::SUCCESS_DATA_RETRIEVED);
+        return $this->responseSuccess($this->formatStudentWithBus($student), AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //tambah siswa baru 
@@ -122,20 +123,22 @@ class StudentController extends BaseController {
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }
 
-    //Get daftar siswa pending approval 
+    //Get daftar siswa pending approval (dengan info bus & rute jika sudah ada)
     public function pending(Request $request) {
-        $students = $this->studentService->getPendingStudents(15);
-        return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
+        $paginator = $this->studentService->getPendingStudents(15);
+        $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
+        return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    // Approve siswa 
+    // Approve siswa
     public function approve(Request $request, $id) {
         $result = $this->studentService->approveStudent($id);
         if (!$result['success']) {
             return $this->responseConflict($result['error']);
         }
+        // Return format konsisten dengan index/pending agar Flutter bisa parse students.id
         return $this->responseSuccess(
-            $result['student'],
+            $this->formatStudentWithBus($result['student']),
             'Siswa berhasil disetujui'
         );
     }
@@ -275,10 +278,13 @@ class StudentController extends BaseController {
             }
         }
 
-        // validate Halte terdekat harus < 100m (jika tidak, siswa tidak di sekitar halte manapun)
-        if ($nearestDistance > 100) {
+        // validate Halte terdekat
+        // Development: batas dinonaktifkan (999999m) agar bisa test tanpa GPS asli
+        // Production: ganti kembali ke 100
+        $maxDistance = env('APP_ENV') === 'production' ? 100 : 999999;
+        if ($nearestDistance > $maxDistance) {
             return $this->responseError(
-                "Anda tidak berada di sekitar halte manapun. Halte terdekat: {$nearestDistance}m (diperlukan <100m)",
+                "Anda tidak berada di sekitar halte manapun. Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m)",
                 400
             );
         }
@@ -385,29 +391,113 @@ class StudentController extends BaseController {
 
     //get data GPS terbaru untuk bus yang ditugaskan kepada siswa
     public function getBusTracking(Request $request) {
-        $user = $request->user();
+        $user    = $request->user();
         $student = $user->student;
-        if (!$student) {
-            return $this->responseNotFound('Student not found.');
-        }
-        $bus = $student->buses()->first();
-        if (!$bus) {
-            return $this->responseError('No bus assigned to the student.', null, 404);
-        }
-        $gpsTrack = GpsTrack::where('bus_id', $bus->id)->orderBy('recorded_at', 'desc')->first();
-        if (!$gpsTrack) {
-            return $this->responseError('No GPS data available for the assigned bus.', null, 404);
-        }
+        if (!$student) return $this->responseNotFound('Student not found.');
+
+        $bus = $student->buses()->with(['routes.haltes', 'routes.polylines'])->first();
+        if (!$bus) return $this->responseError('No bus assigned to the student.', null, 404);
+
+        // Posisi GPS terakhir bus
+        $gpsTrack = GpsTrack::where('bus_id', $bus->id)
+            ->orderBy('recorded_at', 'desc')->first();
+
+        // Halte penjemputan siswa ini
+        $studentBus  = \App\Models\StudentBus::where('student_id', $student->id)
+            ->where('bus_id', $bus->id)->with('halte')->first();
+        $myHalte     = $studentBus?->halte;
+
+        // Format rute untuk peta (polyline + titik halte)
+        $routes = $bus->routes->map(function ($route) {
+            return [
+                'id'        => $route->id,
+                'bus_id'    => $route->bus_id ?? 0,
+                'nama_rute' => $route->nama_rute,
+                'haltes'    => $route->haltes->map(fn($h) => [
+                    'id'          => $h->id,
+                    'nama_halte'  => $h->nama_halte,
+                    'latitude'    => (float) $h->latitude,
+                    'longitude'   => (float) $h->longitude,
+                    'urutan'      => $h->pivot->urutan ?? 0,
+                ])->sortBy('urutan')->values(),
+                'polyline'  => $route->polylines->map(fn($p) => [
+                    'latitude'  => (float) $p->latitude,
+                    'longitude' => (float) $p->longitude,
+                    'urutan'    => $p->urutan,
+                ])->values(),
+            ];
+        })->values();
+
         return $this->responseSuccess([
-            'bus_id' => $bus->id,
-            'bus_code' => $bus->kode_bus,
+            'bus_id'    => $bus->id,
+            'bus_code'  => $bus->kode_bus,
             'bus_plate' => $bus->plat_nomor,
-            'position' => [
-                'latitude' => (float)$gpsTrack->latitude,
-                'longitude' => (float)$gpsTrack->longitude,
-                'speed' => (float)($gpsTrack->speed ?? 0),
+            'gps_active' => $gpsTrack ? true : false,
+            'position'  => $gpsTrack ? [
+                'latitude'    => (float) $gpsTrack->latitude,
+                'longitude'   => (float) $gpsTrack->longitude,
+                'speed'       => (float) ($gpsTrack->speed ?? 0),
                 'recorded_at' => $gpsTrack->recorded_at,
-            ],
+            ] : null,
+            // Halte penjemputan milik siswa ini
+            'my_halte'  => $myHalte ? [
+                'id'         => $myHalte->id,
+                'nama_halte' => $myHalte->nama_halte,
+                'latitude'   => (float) $myHalte->latitude,
+                'longitude'  => (float) $myHalte->longitude,
+            ] : null,
+            // Rute lengkap untuk gambar polyline & halte di peta
+            'routes'    => $routes,
         ], 'GPS tracking data retrieved successfully');
+    }
+
+    /**
+     * Format data siswa beserta info bus, rute, dan halte.
+     * Dipakai agar Flutter side bisa render QR card dengan info rute lengkap.
+     */
+    private function formatStudentWithBus($student): array {
+        $bus   = $student->buses()->where('status', 'aktif')->with('routes')->first();
+        $route = $bus?->routes->first();
+
+        // Ambil halte dari pivot student_bus
+        $studentBus = \App\Models\StudentBus::where('student_id', $student->id)
+            ->when($bus, fn($q) => $q->where('bus_id', $bus->id))
+            ->with('halte')
+            ->first();
+        $halte = $studentBus?->halte;
+
+        return [
+            'id'              => $student->id,
+            'user_id'         => $student->user_id,
+            'nis'             => $student->nis,
+            'sekolah'         => $student->sekolah,
+            'kelas'           => $student->kelas,
+            'alamat'          => $student->alamat,
+            'no_hp'           => $student->no_hp,
+            'approval_status' => $student->approval_status,
+            'rejection_reason'=> $student->rejection_reason ?? null,
+            'user'            => $student->user ? [
+                'id'    => $student->user->id,
+                'name'  => $student->user->name,
+                'email' => $student->user->email,
+                'role'  => $student->user->role,
+            ] : null,
+            // Info bus & rute untuk QR card
+            'bus'   => $bus ? [
+                'id'        => $bus->id,
+                'kode_bus'  => $bus->kode_bus,
+                'plat_nomor'=> $bus->plat_nomor,
+                'routes'    => $route ? [['id' => $route->id, 'nama_rute' => $route->nama_rute]] : [],
+            ] : null,
+            'halte' => $halte ? [
+                'id'          => $halte->id,
+                'nama_halte'  => $halte->nama_halte,
+            ] : null,
+            'bus_id'    => $bus?->id ?? 0,
+            'halte_id'  => $halte?->id ?? 0,
+            'kode_bus'  => $bus?->kode_bus ?? '',
+            'nama_rute' => $route?->nama_rute ?? '',
+            'nama_halte'=> $halte?->nama_halte ?? '',
+        ];
     }
 }

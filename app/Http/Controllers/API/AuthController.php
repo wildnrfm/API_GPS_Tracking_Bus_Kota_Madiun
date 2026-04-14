@@ -12,7 +12,7 @@ class AuthController extends BaseController {
     protected $authService;
     public function __construct(AuthService $authService) {
         $this->authService = $authService;
-        $this->middleware('auth:api')->except(['login', 'register']);
+        $this->middleware('auth:api')->except(['login', 'register', 'checkApproval']);
     }
 
     // Login dengan email dan password
@@ -199,5 +199,38 @@ class AuthController extends BaseController {
         return $this->responseSuccess([
             'photo_url' => $user->photo_url,
         ], 'Foto profil berhasil diperbarui');
+    }
+
+    /**
+     * Cek status approval siswa berdasarkan email.
+     * Endpoint publik (tanpa token) — dipakai oleh pending_screen Flutter
+     * untuk polling realtime setiap 5 detik.
+     *
+     * POST /api/auth/check-approval
+     * Body: { "email": "siswa@example.com" }
+     *
+     * Response:
+     *   { status: "pending" | "approved" | "rejected", rejection_reason?: string }
+     */
+    public function checkApproval(Request $request) {
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $user = \App\Models\User::where('email', $request->email)
+            ->where('role', 'siswa')
+            ->with('student')
+            ->first();
+
+        if (!$user || !$user->student) {
+            return $this->responseError('Akun tidak ditemukan', null, 404);
+        }
+
+        $status = $user->student->approval_status;
+
+        return $this->responseSuccess([
+            'status'           => $status,
+            'rejection_reason' => $status === 'rejected' ? $user->student->rejection_reason : null,
+        ], 'Status approval berhasil diambil');
     }
 }
