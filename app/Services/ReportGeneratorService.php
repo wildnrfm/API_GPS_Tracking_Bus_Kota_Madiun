@@ -72,8 +72,8 @@ class ReportGeneratorService {
             'total_reports'      => $dailyReports->count(),
             'total_attendances'  => $attendanceReport['total_attendances'],
             'duration'           => $duration,
-            'reports'            => $reportData,
-            'attendance_reports' => $attendanceReport['reports'],
+            'reports'            => $reportData->values()->toArray(),
+            'attendance_reports' => $attendanceReport['reports']->values()->toArray(),
         ];
     }
 
@@ -117,7 +117,10 @@ class ReportGeneratorService {
                   </tr></thead><tbody>";
 
         // FIX Bug 2: Tangani jika reports kosong — tampilkan baris kosong
-        if (empty($reportData['reports']) || $reportData['reports']->isEmpty()) {
+        // Gunakan pengecekan aman karena reports bisa berupa Collection atau array biasa
+        $reps = $reportData['reports'];
+        $reportsEmpty = empty($reps) || (is_object($reps) ? $reps->isEmpty() : count($reps) === 0);
+        if ($reportsEmpty) {
             $html .= "<tr><td colspan='7' style='text-align:center;'>Tidak ada data absensi untuk tanggal ini.</td></tr>";
         } else {
             foreach ($reportData['reports'] as $report) {
@@ -213,7 +216,7 @@ class ReportGeneratorService {
 
         return [
             'total_attendances' => $attendances->count(),
-            'reports'           => $reportData,
+            'reports'           => $reportData->values(),
         ];
     }
 
