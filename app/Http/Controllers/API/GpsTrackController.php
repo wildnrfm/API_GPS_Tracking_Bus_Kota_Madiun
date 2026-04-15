@@ -167,13 +167,15 @@ class GpsTrackController extends BaseController {
 
         // Auto-reset GPS yang stale:
         // - gps_status = 'on' tapi last_gps_update NULL (sesi lama yang tidak pernah kirim koordinat)
-        // - gps_status = 'on' tapi last_gps_update sudah > 5 menit yang lalu
+        // - gps_status = 'on' tapi last_gps_update sudah > 10 menit yang lalu
+        // CATATAN: Threshold dinaikkan dari 5 → 10 menit karena heartbeat Flutter setiap 2 menit
+        // + delay jaringan bisa membuat GPS ter-reset secara salah saat driver masih aktif
         $staleIds = $assignments->filter(function($a) use ($now) {
             if ($a->gps_status !== 'on') return false;
             // NULL last_gps_update = toggle ON dari sesi lama, langsung reset
             if (!$a->last_gps_update) return true;
-            // Ada last_gps_update tapi sudah > 5 menit
-            return $now->diffInMinutes(Carbon::parse($a->last_gps_update)) > 5;
+            // Ada last_gps_update tapi sudah > 10 menit
+            return $now->diffInMinutes(Carbon::parse($a->last_gps_update)) > 10;
         })->pluck('id');
 
         if ($staleIds->isNotEmpty()) {

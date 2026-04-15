@@ -172,14 +172,10 @@ class DriverController extends BaseController {
             return $this->responseForbidden('Bus tidak aktif');
         }
         if ($data['gps_status'] === 'on') {
-            // Catat GPS awal saat driver aktifkan tracking
-            GpsTrack::create([
-                'bus_id'      => $busDriver->bus_id,
-                'latitude'    => 0.0,
-                'longitude'   => 0.0,
-                'speed'       => 0,
-                'recorded_at' => now(),
-            ]);
+            // CATATAN: Jangan simpan koordinat 0,0 ke gps_tracks karena akan difilter
+            // oleh query dashboard (WHERE latitude != 0 AND longitude != 0).
+            // Cukup update last_gps_update di bawah agar stale-reset tidak langsung terpicu.
+            // Koordinat nyata akan masuk saat driver mengirim POST /driver/gps pertama kali.
         }
         $busDriver->update([
             'gps_status'      => $data['gps_status'],
