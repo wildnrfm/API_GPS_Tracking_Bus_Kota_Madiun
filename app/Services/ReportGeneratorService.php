@@ -78,16 +78,26 @@ class ReportGeneratorService {
     }
 
     public function generateDriverReportPDF($busId, $tanggal) {
-        $bus        = Bus::with(['driver.user'])->find($busId);
+        $date       = Carbon::parse($tanggal)->toDateString();
+        $bus        = Bus::find($busId);
         $reportData = $this->generateDriverAttendanceReport($busId, $tanggal);
 
-        // FIX Bug 2: Null-safe jika tidak ada data attendance (reports kosong)
-        $firstReport = $reportData['reports'][0] ?? null;
-        $plat        = $firstReport['plat']       ?? ($bus->plat_nomor ?? '-');
-        $noTelepon   = $firstReport['no_telepon'] ?? '-';
+        // Ambil driver AKTIF pada tanggal laporan
+        $activeDriver = BusDriver::with('driver.user')
+            ->where('bus_id', $busId)
+            ->where('tanggal_mulai', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('tanggal_selesai')
+                  ->orWhere('tanggal_selesai', '>=', $date);
+            })
+            ->orderByDesc('tanggal_mulai')
+            ->first();
 
-        // FIX Bug 3: Null-safe akses relasi bus->driver->user->name
-        $namaDriver  = $bus->driver->user->name ?? '-';
+        // Ambil data dari driver aktif, bukan relasi bus->driver yang tidak difilter tanggal
+        $firstReport = $reportData['reports'][0] ?? null;
+        $plat        = $bus->plat_nomor ?? '-';
+        $noTelepon   = $activeDriver?->driver->no_hp ?? $firstReport['no_telepon'] ?? '-';
+        $namaDriver  = $activeDriver?->driver->user->name ?? '-';
         $kodeBus     = $bus->kode_bus ?? '-';
 
         $dompdf = new Dompdf();
@@ -193,13 +203,24 @@ class ReportGeneratorService {
 
     public function generateDriverAttendanceReport($busId, $tanggal) {
         $date        = Carbon::parse($tanggal)->toDateString();
-        $attendances = Attendance::with(['student.user', 'bus.drivers', 'halteNaik'])
+        $attendances = Attendance::with(['student.user', 'bus', 'halteNaik'])
             ->where('bus_id', $busId)
             ->whereDate('tanggal', $date)
             ->get();
 
-        $reportData = $attendances->map(function ($attendance, $index) use ($date) {
-            $driver = $attendance->bus->drivers->first();
+        // Ambil driver AKTIF pada tanggal laporan (bukan sekedar driver pertama di bus)
+        $activeDriver = BusDriver::with('driver.user')
+            ->where('bus_id', $busId)
+            ->where('tanggal_mulai', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('tanggal_selesai')
+                  ->orWhere('tanggal_selesai', '>=', $date);
+            })
+            ->orderByDesc('tanggal_mulai')
+            ->first();
+
+        $reportData = $attendances->map(function ($attendance, $index) use ($date, $activeDriver) {
+            $driver = $activeDriver?->driver;
             return [
                 'no'             => $index + 1,
                 'nama_penumpang' => $attendance->student->user->name ?? '-',
