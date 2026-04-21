@@ -325,13 +325,34 @@ class AttendanceController extends BaseController {
     // Get Absensi hari ini berdasarkan bus
     public function byBusToday(Request $request, $busId) {
         $bus = Bus::findOrFail($busId);
-        $attendance = Attendance::where('bus_id', $busId)->whereDate('tanggal', now()->toDateString())->with('student.user')->orderBy('waktu_naik', 'asc')->get();
+        $attendances = Attendance::where('bus_id', $busId)
+            ->whereDate('tanggal', now()->toDateString())
+            ->with(['student.user', 'halteNaik'])
+            ->orderBy('waktu_naik', 'asc')
+            ->get();
+
+        $data = $attendances->map(function ($a) {
+            return [
+                'attendance_id' => $a->id,
+                'qr_id'         => $a->qr_id,
+                'student_id'    => $a->student_id,
+                'student_name'  => $a->student->user->name ?? '-',
+                'student_nis'   => $a->student->nis ?? '-',
+                'bus_code'      => $a->bus->kode_bus ?? '-',
+                'halte_naik'    => $a->halteNaik->nama_halte ?? '-',
+                'waktu_naik'    => $a->waktu_naik,
+                'waktu_turun'   => $a->waktu_turun,
+                'status'        => $a->status,
+            ];
+        });
+
         return $this->responseSuccess([
-            'bus_id' => $busId,
-            'bus_code' => $bus->kode_bus,
-            'date' => now()->toDateString(),
-            'total_scanned' => $attendance->count(),
-            'data' => $attendance
+            'bus_id'        => $busId,
+            'bus_code'      => $bus->kode_bus,
+            'date'          => now()->toDateString(),
+            'total_scanned' => $attendances->count(),
+            'total_onboard' => $attendances->whereNull('waktu_turun')->count(),
+            'data'          => $data,
         ], AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
@@ -348,6 +369,40 @@ class AttendanceController extends BaseController {
             'student_name' => $student->user->name,
             'date' => now()->toDateString(),
             'data' => $attendance
+        ], AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    // Absensi siswa yang sedang login hari ini — tanpa ID di URL (student route)
+    public function myAttendanceToday(Request $request) {
+        $user    = $request->user();
+        $student = $user->student;
+        if (!$student) {
+            return $this->responseNotFound('Profil siswa tidak ditemukan');
+        }
+        $attendances = Attendance::where('student_id', $student->id)
+            ->whereDate('tanggal', now()->toDateString())
+            ->with(['bus', 'halteNaik'])
+            ->orderBy('waktu_naik', 'asc')
+            ->get();
+
+        $data = $attendances->map(function ($a) {
+            return [
+                'attendance_id' => $a->id,
+                'qr_id'         => $a->qr_id,
+                'bus_id'        => $a->bus_id,
+                'bus_code'      => $a->bus->kode_bus ?? '-',
+                'halte_naik'    => $a->halteNaik->nama_halte ?? '-',
+                'waktu_naik'    => $a->waktu_naik,
+                'waktu_turun'   => $a->waktu_turun,
+                'status'        => $a->status,
+            ];
+        });
+
+        return $this->responseSuccess([
+            'student_id'   => $student->id,
+            'student_name' => $user->name,
+            'date'         => now()->toDateString(),
+            'data'         => $data,
         ], AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 

@@ -149,9 +149,18 @@ class ReportController extends BaseController {
         $tanggal       = $request->input('tanggal');
         $catatanDriver = $request->input('catatan_driver');
         $this->saveCatatanDriver($busId, $tanggal, $catatanDriver);
-        $pdfContent = $this->reportGenerator->generateDriverReportPDF($busId, $tanggal);
-        $filename = "driver_report_{$busId}_{$tanggal}.pdf";
-        return response($pdfContent, 200)->header('Content-Type', 'application/pdf')->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
+
+        $result = $this->reportGenerator->generateDriverReportPDF($busId, $tanggal);
+
+        // Gunakan nama driver untuk nama file agar jelas
+        $pdfContent = is_array($result) ? $result['content'] : $result;
+        $namaDriver = is_array($result) ? ($result['driver_name'] ?? 'driver') : 'driver';
+        $safeDriver = preg_replace('/[^A-Za-z0-9_\-]/', '_', $namaDriver);
+        $filename   = "Laporan_{$safeDriver}_{$tanggal}.pdf";
+
+        return response($pdfContent, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
     }
 
     // Download laporan admin sebagai Excel (XLSX)
@@ -195,31 +204,39 @@ class ReportController extends BaseController {
         if (!$busId) {
             abort(400, 'Parameter bus_id is required for this operation');
         }
-        $filename = "driver_report_{$busId}_{$tanggal}.xlsx";
         if (class_exists(\PhpOffice\PhpSpreadsheet\Spreadsheet::class)) {
-            $filePath = $this->reportGenerator->generateDriverAttendanceExcel($busId, $tanggal);
+            $result   = $this->reportGenerator->generateDriverAttendanceExcel($busId, $tanggal);
+            $filePath = is_array($result) ? $result['path'] : $result;
+            $namaDriver = is_array($result) ? ($result['driver_name'] ?? 'driver') : 'driver';
+            $safeDriver = preg_replace('/[^A-Za-z0-9_\-]/', '_', $namaDriver);
+            $filename   = "Laporan_{$safeDriver}_{$tanggal}.xlsx";
             if (file_exists($filePath)) {
                 return response()->download($filePath, $filename)->deleteFileAfterSend(true);
             }
         }
+        // Fallback CSV jika PhpSpreadsheet tidak tersedia
         $reportData = $this->reportGenerator->generateDriverAttendanceReport($busId, $tanggal);
         $rows = [];
-        $rows[] = ['No', 'Nama Penumpang', 'Waktu Naik', 'Halte Naik', 'Waktu Turun', 'Lat, Lng Turun', 'Checkout', 'Plat', 'No Telepon'];
+        $rows[] = ['No', 'Nama Penumpang', 'Waktu Naik', 'Halte Naik', 'Waktu Turun', 'Status Checkout', 'Plat', 'No Telepon Driver'];
         foreach ($reportData['reports'] as $r) {
+            $wn = isset($r['waktu_naik'])  && $r['waktu_naik']  ? \Carbon\Carbon::parse($r['waktu_naik'])->format('H:i')  : '-';
+            $wt = isset($r['waktu_turun']) && $r['waktu_turun'] ? \Carbon\Carbon::parse($r['waktu_turun'])->format('H:i') : '-';
             $rows[] = [
                 $r['no'] ?? '-',
                 $r['nama_penumpang'] ?? '-',
-                $r['waktu_naik'] ?? '-',
+                $wn,
                 $r['halte_naik'] ?? '-',
-                $r['waktu_turun'] ?? '-',
-                $r['lat_lng_turun'] ?? '-',
-                $r['checkout'] ?? '-',
+                $wt,
+                ($r['checkout'] ?? 'No') === 'Yes' ? 'Sudah Turun' : 'Masih Di Bus',
                 $r['plat'] ?? '-',
                 $r['no_telepon'] ?? '-',
             ];
         }
+        $filename = "Laporan_driver_{$tanggal}.xlsx";
         $csv = $this->arrayToCsv($rows);
-        return response($csv, 200)->header('Content-Type', 'text/csv')->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
+        return response($csv, 200)
+            ->header('Content-Type', 'text/csv')
+            ->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
     }
 
     /**

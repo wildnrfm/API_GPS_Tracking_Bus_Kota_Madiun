@@ -130,9 +130,12 @@ class GpsTrackController extends BaseController {
 
         // Load GPS terbaru per bus — pakai MAX(recorded_at) bukan MAX(id)
         // karena id tidak menjamin urutan waktu (device_timestamp bisa berbeda)
+        // PENTING: Filter whereDate('recorded_at', $today) agar tidak pakai
+        // koordinat dari sesi kemarin/minggu lalu saat driver baru toggle ON
         $latestGpsMap = GpsTrack::select('bus_id',
                 DB::raw('MAX(recorded_at) as max_recorded'))
             ->whereIn('bus_id', $busIds)
+            ->whereDate('recorded_at', $today)
             ->where('latitude', '!=', 0)
             ->where('longitude', '!=', 0)
             ->groupBy('bus_id')
@@ -144,6 +147,7 @@ class GpsTrackController extends BaseController {
         foreach ($latestGpsMap as $busId => $maxRecorded) {
             $record = GpsTrack::where('bus_id', $busId)
                 ->where('recorded_at', $maxRecorded)
+                ->whereDate('recorded_at', $today)
                 ->where('latitude', '!=', 0)
                 ->where('longitude', '!=', 0)
                 ->first(['id', 'bus_id', 'latitude', 'longitude', 'speed', 'accuracy', 'heading', 'recorded_at']);

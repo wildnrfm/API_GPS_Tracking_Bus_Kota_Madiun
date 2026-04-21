@@ -194,6 +194,8 @@ Route::middleware(['auth:api', 'driver'])->prefix('driver')->group(function () {
     Route::post('attendance/scan', [AttendanceController::class, 'scan']);
     Route::put('attendance/checkout', [AttendanceController::class, 'checkOut']);
     Route::get('buses/{busId}/report', [DriverController::class, 'dailyReport']);
+    // Daftar penumpang hari ini di bus driver — untuk dashboard & checkout
+    Route::get('buses/{busId}/attendance/today', [AttendanceController::class, 'byBusToday']);
 });
 
 // ─── STUDENT ONLY ─────────────────────────────────────────────
@@ -202,4 +204,6 @@ Route::middleware(['auth:api', 'student'])->prefix('student')->group(function ()
     Route::post('barcode', [StudentController::class, 'myBarcode']);
     Route::get('bus', [StudentController::class, 'myBus']);
     Route::get('bus/tracking', [StudentController::class, 'getBusTracking']);
+    // Status absensi siswa hari ini — untuk polling QR screen
+    Route::get('attendance/today', [AttendanceController::class, 'myAttendanceToday']);
 });

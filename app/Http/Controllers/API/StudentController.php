@@ -256,39 +256,90 @@ class StudentController extends BaseController {
             );
         }
 
-        //Find halte terdekat dari GPS student
-        $haltes = Halte::get();
-        if ($haltes->isEmpty()) {
-            return $this->responseError('Tidak ada halte yang terdaftar', 500);
-        }
+        // Cari halte yang ada di rute bus siswa ini — bukan semua halte
+        // agar siswa tidak bisa generate QR di halte bus lain yang lebih dekat
+        $busRoute = $bus->routes()->with('haltes')->first();
+        $haltes = $busRoute ? $busRoute->haltes : collect();
 
-        // Calculate distance ke semua halte dan cari yang terdekat
-        $nearestHalte = null;
-        $nearestDistance = PHP_INT_MAX;
-        foreach ($haltes as $halte) {
-            $distance = Attendance::calculateDistance(
-                $data['latitude'],
-                $data['longitude'],
-                $halte->latitude,
-                $halte->longitude
-            );
-            if ($distance < $nearestDistance) {
-                $nearestDistance = $distance;
-                $nearestHalte = $halte;
+        // Fallback 1: jika rute belum diset, gunakan halte yang di-assign ke siswa
+        if ($haltes->isEmpty()) {
+            $studentBusAssign = \App\Models\StudentBus::where('student_id', $student->id)
+                ->where('bus_id', $bus->id)
+                ->with('halte')
+                ->first();
+            if ($studentBusAssign && $studentBusAssign->halte) {
+                $haltes = collect([$studentBusAssign->halte]);
             }
         }
 
-        // validate Halte terdekat
-        // Development: batas dinonaktifkan (999999m) agar bisa test tanpa GPS asli
-        // Production: ganti kembali ke 100
-        $maxDistance = env('APP_ENV') === 'production' ? 100 : 999999;
-        if ($nearestDistance > $maxDistance) {
+        if ($haltes->isEmpty()) {
             return $this->responseError(
-                "Anda tidak berada di sekitar halte manapun. Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m)",
-                400
+                'Rute bus belum diatur oleh admin. Hubungi admin sekolah.',
+                500
             );
         }
-        $halte = $nearestHalte;
+
+        // Hitung jarak ke setiap halte di rute bus siswa
+        $nearestHalte    = null;
+        $nearestDistance = PHP_INT_MAX;
+        foreach ($haltes as $h) {
+            $distance = Attendance::calculateDistance(
+                $data['latitude'],
+                $data['longitude'],
+                $h->latitude,
+                $h->longitude
+            );
+            if ($distance < $nearestDistance) {
+                $nearestDistance = $distance;
+                $nearestHalte    = $h;
+            }
+        }
+
+        // Cek apakah bus sudah sangat dekat ke siswa (bus datang menjemput)
+        // Ini sebagai fallback jika siswa sedikit meleset dari titik halte
+        $latestGps = GpsTrack::where('bus_id', $bus->id)
+            ->where('latitude', '!=', 0)
+            ->where('longitude', '!=', 0)
+            ->orderBy('recorded_at', 'desc')
+            ->first();
+
+        $busIsNear      = false;
+        $distanceToBus  = null;
+        if ($latestGps) {
+            $distanceToBus = Attendance::calculateDistance(
+                $data['latitude'],
+                $data['longitude'],
+                $latestGps->latitude,
+                $latestGps->longitude
+            );
+            // Bus dalam radius 75m dari posisi siswa → boleh generate QR
+            $busIsNear = $distanceToBus <= 75;
+        }
+
+        // Validasi: siswa harus dekat halte ATAU bus sudah tiba mendekati siswa
+        $maxDistance = env('APP_ENV') === 'production' ? 100 : 999999;
+        if ($nearestDistance > $maxDistance && !$busIsNear) {
+            $msg = "Kamu belum berada di dekat halte. "
+                 . "Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m).";
+            if ($distanceToBus !== null) {
+                $msg .= " Jarak ke bus: {$distanceToBus}m.";
+            }
+            $msg .= " Tunggu di halte atau tunggu bus mendekati kamu.";
+            return $this->responseError($msg, 400);
+        }
+
+        // Tentukan halte yang dipakai untuk check-in
+        // Jika lolos via bus proximity (bus dekat tapi siswa belum tepat di halte),
+        // gunakan halte yang di-assign ke siswa — bukan nearest halte yang mungkin beda
+        if ($nearestDistance > $maxDistance && $busIsNear) {
+            $assignedHalte = \App\Models\StudentBus::where('student_id', $student->id)
+                ->where('bus_id', $bus->id)
+                ->with('halte')
+                ->first()?->halte;
+            $halte = $assignedHalte ?? $nearestHalte;
+        } else {
+            $halte = $nearestHalte;
+        }
 
         //Generate QR Code dengan data check-in, include random identifier
         $qrId = (string) Str::uuid();
@@ -398,14 +449,38 @@ class StudentController extends BaseController {
         $bus = $student->buses()->with(['routes.haltes', 'routes.polylines'])->first();
         if (!$bus) return $this->responseError('No bus assigned to the student.', null, 404);
 
-        // Posisi GPS terakhir bus
-        $gpsTrack = GpsTrack::where('bus_id', $bus->id)
-            ->orderBy('recorded_at', 'desc')->first();
+        // Cek status GPS dari BusDriver (sumber kebenaran utama)
+        // Jika driver matikan GPS, gps_status = 'off' dan kita TIDAK tampilkan posisi
+        $today = now()->toDateString();
+        $busDriver = \App\Models\BusDriver::where('bus_id', $bus->id)
+            ->where(function ($q) use ($today) {
+                $q->whereNull('tanggal_selesai')
+                  ->orWhere('tanggal_selesai', '>=', $today);
+            })
+            ->with('driver:id,user_id,no_hp', 'driver.user:id,name')
+            ->orderByRaw("CASE WHEN gps_status = 'on' THEN 0 ELSE 1 END")
+            ->orderBy('last_gps_update', 'desc')
+            ->first();
+
+        $gpsStatusOn = $busDriver && $busDriver->gps_status === 'on';
+
+        // Ambil posisi GPS terakhir HANYA jika GPS memang sedang aktif
+        $gpsTrack = null;
+        if ($gpsStatusOn) {
+            $gpsTrack = GpsTrack::where('bus_id', $bus->id)
+                ->where('latitude', '!=', 0)
+                ->where('longitude', '!=', 0)
+                ->orderBy('recorded_at', 'desc')
+                ->first();
+        }
 
         // Halte penjemputan siswa ini
         $studentBus  = \App\Models\StudentBus::where('student_id', $student->id)
             ->where('bus_id', $bus->id)->with('halte')->first();
         $myHalte     = $studentBus?->halte;
+
+        // Nama driver aktif
+        $driverName = $busDriver?->driver?->user?->name ?? null;
 
         // Format rute untuk peta (polyline + titik halte)
         $routes = $bus->routes->map(function ($route) {
@@ -429,16 +504,20 @@ class StudentController extends BaseController {
         })->values();
 
         return $this->responseSuccess([
-            'bus_id'    => $bus->id,
-            'bus_code'  => $bus->kode_bus,
-            'bus_plate' => $bus->plat_nomor,
-            'gps_active' => $gpsTrack ? true : false,
-            'position'  => $gpsTrack ? [
+            'bus_id'      => $bus->id,
+            'bus_code'    => $bus->kode_bus,
+            'bus_plate'   => $bus->plat_nomor,
+            // gps_active HANYA true jika driver benar-benar sedang aktif (gps_status = 'on')
+            'gps_active'  => $gpsStatusOn && $gpsTrack !== null,
+            // Posisi null jika GPS off — Flutter tidak akan tampilkan marker
+            'position'    => ($gpsStatusOn && $gpsTrack) ? [
                 'latitude'    => (float) $gpsTrack->latitude,
                 'longitude'   => (float) $gpsTrack->longitude,
                 'speed'       => (float) ($gpsTrack->speed ?? 0),
                 'recorded_at' => $gpsTrack->recorded_at,
             ] : null,
+            // Info driver aktif untuk ditampilkan ke siswa
+            'driver_name' => $driverName,
             // Halte penjemputan milik siswa ini
             'my_halte'  => $myHalte ? [
                 'id'         => $myHalte->id,
@@ -447,7 +526,7 @@ class StudentController extends BaseController {
                 'longitude'  => (float) $myHalte->longitude,
             ] : null,
             // Rute lengkap untuk gambar polyline & halte di peta
-            'routes'    => $routes,
+            'routes'      => $routes,
         ], 'GPS tracking data retrieved successfully');
     }
 
