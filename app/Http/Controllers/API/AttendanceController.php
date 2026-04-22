@@ -118,56 +118,56 @@ class AttendanceController extends BaseController {
             return $this->responseError("Jarak siswa dengan halte terlalu jauh ({$distance}m, diperlukan <{$maxDistance}m)", 400);
         }
 
-        // pastikan tidak ada sesi terbuka untuk siswa pada tanggal ini (belum checkout)
-        $openAttendance = Attendance::where('student_id', $student->id)->where('tanggal', $data['tanggal'])->whereNull('waktu_turun')->first();
-        if ($openAttendance && $openAttendance->qr_id !== $data['qr_id']) {
-            return $this->responseConflict(
-                ['attendance_id' => $openAttendance->id],
-                'Siswa sudah check-in dan belum checkout. Silakan checkout terlebih dahulu.'
-            );
-        }
-
-        // Cek apakah qr_id sudah ada di tabel
+        // Cari record attendance berdasarkan qr_id (dibuat saat siswa generate QR)
         $existingAttendance = Attendance::where('qr_id', $data['qr_id'])->first();
+
         if ($existingAttendance) {
-
-            // jika sudah ada record, pastikan belum dipakai untuk check-in / checkout
+            // QR sudah dipakai checkout — tolak
             if ($existingAttendance->waktu_turun) {
-                return $this->responseConflict([], 'QR code sudah dipakai dan tidak bisa digunakan lagi.');
+                return $this->responseConflict([], 'QR code sudah dipakai checkout dan tidak bisa digunakan lagi.');
             }
+            // QR sudah di-scan check-in — cek apakah ini scan ulang dari driver yang sama (idempoten)
             if ($existingAttendance->waktu_naik) {
-
-                // record sudah check-in tapi belum checkout -> konflik
                 return $this->responseConflict(
                     ['attendance_id' => $existingAttendance->id],
                     'Siswa sudah check-in dan belum checkout. Silakan checkout terlebih dahulu.'
                 );
             }
-
-            // record ada tetapi belum memiliki waktu naik, artinya siswa baru digenerate QR, sistem akan perbarui dengan data scan
+            // QR dalam status pending (dibuat saat generate) — update dengan data scan driver
             $attendance = $existingAttendance;
             $attendance->update([
-                'bus_id' => $bus->id,
+                'bus_id'        => $bus->id,
                 'halte_naik_id' => $data['halte_id'],
-                'waktu_naik' => now(),
-                'lat_naik' => $data['latitude'],
-                'lng_naik' => $data['longitude'],
-                'status' => 'checked_in',
+                'waktu_naik'    => now(),
+                'lat_naik'      => $data['latitude'],
+                'lng_naik'      => $data['longitude'],
+                'status'        => 'checked_in',
                 'qr_expires_at' => now()->endOfDay(),
             ]);
         } else {
-
-            // tidak ada record sama sekali, buat baru
+            // qr_id tidak dikenal — cek apakah siswa ini sudah punya sesi terbuka hari ini
+            $openAttendance = Attendance::where('student_id', $student->id)
+                ->where('tanggal', $data['tanggal'])
+                ->whereNull('waktu_turun')
+                ->whereNotNull('waktu_naik')
+                ->first();
+            if ($openAttendance) {
+                return $this->responseConflict(
+                    ['attendance_id' => $openAttendance->id],
+                    'Siswa sudah check-in dan belum checkout. Silakan checkout terlebih dahulu.'
+                );
+            }
+            // QR tidak dikenal (mungkin QR lama sebelum sistem baru) — buat record baru
             $attendance = Attendance::create([
-                'qr_id' => $data['qr_id'],
-                'student_id' => $student->id,
-                'bus_id' => $bus->id,
+                'qr_id'         => $data['qr_id'],
+                'student_id'    => $student->id,
+                'bus_id'        => $bus->id,
                 'halte_naik_id' => $data['halte_id'],
-                'tanggal' => $data['tanggal'],
-                'waktu_naik' => now(),
-                'lat_naik' => $data['latitude'],
-                'lng_naik' => $data['longitude'],
-                'status' => 'checked_in',
+                'tanggal'       => $data['tanggal'],
+                'waktu_naik'    => now(),
+                'lat_naik'      => $data['latitude'],
+                'lng_naik'      => $data['longitude'],
+                'status'        => 'checked_in',
                 'qr_expires_at' => now()->endOfDay(),
             ]);
         }

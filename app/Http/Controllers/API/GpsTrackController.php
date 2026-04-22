@@ -289,8 +289,10 @@ class GpsTrackController extends BaseController {
                 $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
                 $payload = [];
                 foreach ($buses as $bus) {
+                    $today = now()->toDateString();
                     $gps = GpsTrack::select('latitude', 'longitude', 'speed', 'recorded_at')
                         ->where('bus_id', $bus->id)
+                        ->whereDate('recorded_at', $today)
                         ->where('latitude', '!=', 0)
                         ->where('longitude', '!=', 0)
                         ->orderBy('recorded_at', 'desc')

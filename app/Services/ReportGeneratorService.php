@@ -262,9 +262,15 @@ HTML;
 
     public function generateDriverAttendanceReport($busId, $tanggal) {
         $date        = Carbon::parse($tanggal)->toDateString();
+        // Hanya ambil record yang sudah benar-benar naik (checked_in / checked_out)
+        // Exclude 'pending' — record pending adalah QR yang belum discan driver
+        // sehingga waktu_naik masih null dan halte_naik belum tentu akurat
         $attendances = Attendance::with(['student.user', 'bus', 'halteNaik'])
             ->where('bus_id', $busId)
             ->whereDate('tanggal', $date)
+            ->whereIn('status', ['checked_in', 'checked_out'])
+            ->whereNotNull('waktu_naik')
+            ->orderBy('waktu_naik', 'asc')
             ->get();
 
         // Ambil driver AKTIF pada tanggal laporan (bukan sekedar driver pertama di bus)
@@ -280,12 +286,16 @@ HTML;
 
         $reportData = $attendances->map(function ($attendance, $index) use ($date, $activeDriver) {
             $driver = $activeDriver?->driver;
+            // Format waktu sebagai string ISO agar konsisten di frontend
+            // $attendance->waktu_naik sudah di-cast sebagai datetime di model
+            $waktuNaikStr  = $attendance->waktu_naik  ? $attendance->waktu_naik->toIso8601String()  : null;
+            $waktuTurunStr = $attendance->waktu_turun ? $attendance->waktu_turun->toIso8601String() : null;
             return [
                 'no'             => $index + 1,
                 'nama_penumpang' => $attendance->student->user->name ?? '-',
-                'waktu_naik'     => $attendance->waktu_naik,
+                'waktu_naik'     => $waktuNaikStr,
                 'halte_naik'     => $attendance->halteNaik->nama_halte ?? '-',
-                'waktu_turun'    => $attendance->waktu_turun,
+                'waktu_turun'    => $waktuTurunStr,
                 'lat_lng_turun'  => ($attendance->lat_turun ?? '-') . ', ' . ($attendance->lng_turun ?? '-'),
                 'checkout'       => $attendance->waktu_turun ? 'Yes' : 'No',
                 'plat'           => $attendance->bus->plat_nomor ?? '-',

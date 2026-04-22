@@ -11,13 +11,28 @@ class MarkMissedCheckouts extends Command {
 
     public function handle() {
         $yesterday = now()->subDay()->toDateString();
-        $updated = Attendance::where('tanggal', $yesterday)->whereNull('waktu_turun')->update([
-                'status' => 'not_checked_out',
-                'waktu_turun' => '-',
-                'lat_turun' => '-',
-                'lng_turun' => '-',
+
+        // Hanya mark record yang sudah check-in (status checked_in, waktu_naik ada)
+        // Skip record 'pending' (QR dibuat tapi tidak dipakai) — hapus saja
+        $updated = Attendance::where('tanggal', $yesterday)
+            ->where('status', 'checked_in')
+            ->whereNotNull('waktu_naik')
+            ->whereNull('waktu_turun')
+            ->update([
+                'status'     => 'not_checked_out',
+                // Jangan set string '-' pada kolom timestamp/decimal — gunakan null
+                'waktu_turun' => null,
+                'lat_turun'   => null,
+                'lng_turun'   => null,
             ]);
-        $this->info("Marked {$updated} attendance records as NOT_CHECKED_OUT");
+
+        // Hapus record pending kemarin yang tidak terpakai (QR tidak pernah discan)
+        $deleted = Attendance::where('tanggal', $yesterday)
+            ->where('status', 'pending')
+            ->whereNull('waktu_naik')
+            ->delete();
+
+        $this->info("Marked {$updated} attendance as NOT_CHECKED_OUT, deleted {$deleted} unused pending QR records");
         return Command::SUCCESS;
     }
 }

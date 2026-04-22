@@ -95,7 +95,14 @@ class ReportController extends BaseController {
             return $this->responseForbidden('Anda tidak memiliki akses ke endpoint ini');
         }
         $cacheKey = 'driver_report_' . $busId . '_' . $tanggal . '_' . $user->id;
-        $reportData = Cache::remember($cacheKey, 3600, function () use ($busId, $tanggal, $user) {
+        // Jika laporan hari ini, jangan cache (data masih bisa berubah setiap siswa naik/turun)
+        // Jika laporan hari lalu, cache 1 jam
+        $isToday = ($tanggal === now()->toDateString());
+        if ($isToday) {
+            Cache::forget($cacheKey);
+        }
+        $cacheTtl = $isToday ? 60 : 3600; // 1 menit untuk hari ini, 1 jam untuk hari lalu
+        $reportData = Cache::remember($cacheKey, $cacheTtl, function () use ($busId, $tanggal, $user) {
             return $this->reportGenerator->generateDriverReport($busId, $tanggal, $user->role === 'driver' ? $user->driver->id : null);
         });
         return $this->responseSuccess($reportData, 'Laporan berhasil dihasilkan');

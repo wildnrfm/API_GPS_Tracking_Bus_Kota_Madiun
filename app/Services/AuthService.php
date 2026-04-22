@@ -100,11 +100,50 @@ class AuthService {
         }
 
         // Load relasi driver/student agar Flutter tidak perlu /auth/me tambahan
-        $user->loadMissing(['driver', 'student']);
+        $user->loadMissing(['driver']);
+        $user->load(['student.buses.routes', 'student.halte']);
+
+        // Format data user dengan bus/halte untuk siswa
+        $userData = $user->toArray();
+        if ($user->role === 'siswa' && $user->student) {
+            $student = $user->student;
+            // Ambil bus aktif pertama
+            $studentBus = $student->buses()->where('status', 'aktif')
+                ->with(['routes'])
+                ->first();
+            $halte = $student->halte;
+            $route = $studentBus?->routes->first();
+
+            // Override field 'student' di userData dengan info lengkap
+            $userData['student'] = [
+                'id'              => $student->id,
+                'user_id'         => $student->user_id,
+                'nis'             => $student->nis,
+                'sekolah'         => $student->sekolah,
+                'kelas'           => $student->kelas,
+                'alamat'          => $student->alamat,
+                'no_hp'           => $student->no_hp,
+                'approval_status' => $student->approval_status,
+                // Info bus yang di-assign ke siswa ini
+                'bus' => $studentBus ? [
+                    'id'        => $studentBus->id,
+                    'kode_bus'  => $studentBus->kode_bus,
+                    'plat_nomor'=> $studentBus->plat_nomor,
+                    'routes'    => $route ? [['id' => $route->id, 'nama_rute' => $route->nama_rute]] : [],
+                ] : null,
+                // Halte penjemputan siswa
+                'halte' => $halte ? [
+                    'id'         => $halte->id,
+                    'nama_halte' => $halte->nama_halte,
+                    'latitude'   => (float) $halte->latitude,
+                    'longitude'  => (float) $halte->longitude,
+                ] : null,
+            ];
+        }
 
         return [
             'token'            => $user->api_token,
-            'user'             => $user,  // sudah include relasi driver/student
+            'user'             => $userData,
             'token_expires_at' => $user->token_expires_at,
             'bus'              => $busData, // null jika bukan driver / belum dapat bus
         ];

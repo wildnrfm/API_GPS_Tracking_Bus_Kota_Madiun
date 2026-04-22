@@ -82,7 +82,8 @@ class AuthController extends BaseController {
     //Get data user yang sedang login
     public function me(Request $request) {
         $user = $request->user();
-        $user->loadMissing(['driver', 'student']);
+        $user->loadMissing(['driver']);
+        $user->load(['student.buses.routes', 'student.halte']);
 
         $busData = null;
         if ($user->role === 'driver' && $user->driver) {
@@ -129,8 +130,40 @@ class AuthController extends BaseController {
             }
         }
 
+        // Format data user dengan bus/halte untuk siswa (sama seperti login)
+        $userData = $user->toArray();
+        if ($user->role === 'siswa' && $user->student) {
+            $student = $user->student;
+            $studentBus = $student->buses()->where('status', 'aktif')
+                ->with(['routes'])->first();
+            $halte  = $student->halte;
+            $route  = $studentBus?->routes->first();
+            $userData['student'] = [
+                'id'              => $student->id,
+                'user_id'         => $student->user_id,
+                'nis'             => $student->nis,
+                'sekolah'         => $student->sekolah,
+                'kelas'           => $student->kelas,
+                'alamat'          => $student->alamat,
+                'no_hp'           => $student->no_hp,
+                'approval_status' => $student->approval_status,
+                'bus' => $studentBus ? [
+                    'id'        => $studentBus->id,
+                    'kode_bus'  => $studentBus->kode_bus,
+                    'plat_nomor'=> $studentBus->plat_nomor,
+                    'routes'    => $route ? [['id' => $route->id, 'nama_rute' => $route->nama_rute]] : [],
+                ] : null,
+                'halte' => $halte ? [
+                    'id'         => $halte->id,
+                    'nama_halte' => $halte->nama_halte,
+                    'latitude'   => (float) $halte->latitude,
+                    'longitude'  => (float) $halte->longitude,
+                ] : null,
+            ];
+        }
+
         return $this->responseSuccess([
-            'user' => $user,
+            'user' => $userData,
             'bus'  => $busData,
         ], 'Data user berhasil diambil');
     }

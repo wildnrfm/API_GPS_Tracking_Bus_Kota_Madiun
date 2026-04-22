@@ -236,9 +236,16 @@ class StudentController extends BaseController {
         $student = $user->student;
         $today = now()->toDateString();
 
-        //cek pakah siswa punya attendance hari ini yang belum checkout?
-        $existingAttendance = Attendance::where('student_id', $student->id)->where('tanggal', $today)->whereNull('waktu_turun')->first();
-        if ($existingAttendance) {
+        // Cek apakah siswa sedang dalam perjalanan (sudah check-in tapi belum checkout)
+        // HANYA block jika status 'checked_in' (sudah naik bus) — jangan block 'pending'
+        // karena 'pending' adalah QR yang belum discan driver dan harus bisa di-reuse
+        $activeTrip = Attendance::where('student_id', $student->id)
+            ->where('tanggal', $today)
+            ->where('status', 'checked_in')
+            ->whereNotNull('waktu_naik')
+            ->whereNull('waktu_turun')
+            ->first();
+        if ($activeTrip) {
             return $this->responseError(
                 'Anda masih dalam perjalanan. Silakan turunkan terlebih dahulu sebelum naik lagi.',
                 409
@@ -341,8 +348,39 @@ class StudentController extends BaseController {
             $halte = $nearestHalte;
         }
 
-        //Generate QR Code dengan data check-in, include random identifier
-        $qrId = (string) Str::uuid();
+        // Cek apakah sudah ada attendance hari ini dengan qr_id (belum discan / belum naik)
+        // Jika ada, reuse qr_id yang sama agar QR tetap valid setelah refresh
+        $existingPending = Attendance::where('student_id', $student->id)
+            ->where('tanggal', $today)
+            ->whereNull('waktu_naik')
+            ->whereNotNull('qr_id')
+            ->first();
+
+        if ($existingPending) {
+            // Reuse qr_id yang sudah ada — update halte & posisi jika berbeda
+            $existingPending->update([
+                'bus_id'       => $bus->id,
+                'halte_naik_id' => $halte->id,
+                'qr_expires_at' => now()->endOfDay(),
+            ]);
+            $qrId = $existingPending->qr_id;
+        } else {
+            // Generate QR baru dan simpan ke tabel attendance (status pending/belum naik)
+            $qrId = (string) Str::uuid();
+            Attendance::create([
+                'qr_id'         => $qrId,
+                'student_id'    => $student->id,
+                'bus_id'        => $bus->id,
+                'halte_naik_id' => $halte->id,
+                'tanggal'       => $today,
+                'waktu_naik'    => null,  // belum naik, menunggu scan driver
+                'lat_naik'      => $data['latitude'],
+                'lng_naik'      => $data['longitude'],
+                'status'        => 'pending',
+                'qr_expires_at' => now()->endOfDay(),
+            ]);
+        }
+
         $qrData = json_encode([
             'id' => $qrId,
             'student_id' => $student->id,
@@ -467,7 +505,9 @@ class StudentController extends BaseController {
         // Ambil posisi GPS terakhir HANYA jika GPS memang sedang aktif
         $gpsTrack = null;
         if ($gpsStatusOn) {
+            // Filter hari ini agar tidak pakai posisi dari hari kemarin
             $gpsTrack = GpsTrack::where('bus_id', $bus->id)
+                ->whereDate('recorded_at', $today)
                 ->where('latitude', '!=', 0)
                 ->where('longitude', '!=', 0)
                 ->orderBy('recorded_at', 'desc')
