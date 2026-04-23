@@ -414,28 +414,62 @@ class StudentController extends BaseController {
 
     //get bus yang ditugaskan untuk siswa
     public function myBus(Request $request) {
-        $user = $request->user();
+        $user    = $request->user();
         $student = $user->student;
-        $buses = $student->buses()->with('routes')->get();
+        $buses   = $student->buses()->with(['routes.haltes', 'routes.polylines'])->get();
+
         if ($buses->isEmpty()) {
             return $this->responseSuccess(null, 'Siswa belum ditugaskan ke bus manapun');
         }
+
         // Ambil bus pertama (siswa hanya punya 1 bus aktif)
-        $bus = $buses->first();
+        $bus   = $buses->first();
+        $today = now()->toDateString();
+
+        // Ambil info driver aktif & gps_status agar FE bisa tampilkan status bus
+        $busDriver = \App\Models\BusDriver::where('bus_id', $bus->id)
+            ->where(function ($q) use ($today) {
+                $q->whereNull('tanggal_selesai')
+                  ->orWhere('tanggal_selesai', '>=', $today);
+            })
+            ->with('driver:id,user_id', 'driver.user:id,name')
+            ->orderByRaw("CASE WHEN gps_status = 'on' THEN 0 ELSE 1 END")
+            ->orderBy('last_gps_update', 'desc')
+            ->first();
+
+        $gpsStatus  = $busDriver?->gps_status ?? 'off';
+        $driverName = $busDriver?->driver?->user?->name ?? null;
+
         $data = [
-            'bus_id'            => $bus->id,   // FE pakai bus_id untuk getRouteByBus
+            'bus_id'            => $bus->id,
             'id'                => $bus->id,
             'kode_bus'          => $bus->kode_bus,
             'plat_nomor'        => $bus->plat_nomor,
             'status'            => $bus->status,
+            'gps_status'        => $gpsStatus,
+            'driver_name'       => $driverName,
             'assigned_halte_id' => $bus->pivot->halte_id ?? null,
-            'routes'            => $bus->routes->map(function ($route) {
+            'routes'            => $bus->routes->map(function ($route) use ($bus) {
                 return [
-                    'id'   => $route->id,
-                    'name' => $route->nama_rute,
+                    'id'        => $route->id,
+                    'bus_id'    => $bus->id,
+                    'nama_rute' => $route->nama_rute,
+                    'haltes'    => $route->haltes->map(fn($h) => [
+                        'id'         => $h->id,
+                        'nama_halte' => $h->nama_halte,
+                        'latitude'   => (float) $h->latitude,
+                        'longitude'  => (float) $h->longitude,
+                        'urutan'     => $h->pivot->urutan ?? 0,
+                    ])->sortBy('urutan')->values(),
+                    'polyline'  => $route->polylines->map(fn($p) => [
+                        'latitude'  => (float) $p->latitude,
+                        'longitude' => (float) $p->longitude,
+                        'urutan'    => $p->urutan,
+                    ])->sortBy('urutan')->values(),
                 ];
             })->values(),
         ];
+
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 

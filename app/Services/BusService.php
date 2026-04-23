@@ -10,7 +10,7 @@ class BusService {
     public function getAllBuses() {
         $today = now()->toDateString();
 
-        $buses = Bus::with(['routes', 'drivers' => function($q) use ($today) {
+        $buses = Bus::with(['routes.haltes', 'routes.polylines', 'drivers' => function($q) use ($today) {
             $q->wherePivot('tanggal_mulai', '<=', $today)
               ->where(function ($q2) use ($today) {
                   $q2->whereNull('bus_driver.tanggal_selesai')
@@ -61,7 +61,20 @@ class BusService {
                 ] : null,
                 'routes'  => $bus->routes->map(fn($r) => [
                     'id'        => $r->id,
+                    'bus_id'    => $bus->id,
                     'nama_rute' => $r->nama_rute,
+                    'haltes'    => $r->haltes->map(fn($h) => [
+                        'id'         => $h->id,
+                        'nama_halte' => $h->nama_halte,
+                        'latitude'   => (float) $h->latitude,
+                        'longitude'  => (float) $h->longitude,
+                        'urutan'     => $h->pivot->urutan ?? 0,
+                    ])->sortBy('urutan')->values(),
+                    'polyline'  => $r->polylines->map(fn($p) => [
+                        'latitude'  => (float) $p->latitude,
+                        'longitude' => (float) $p->longitude,
+                        'urutan'    => $p->urutan,
+                    ])->sortBy('urutan')->values(),
                 ])->values(),
                 'drivers' => $bus->drivers->map(fn($d) => [
                     'id'      => $d->id,
@@ -78,7 +91,7 @@ class BusService {
     }
 
     public function getBusById($id) {
-        return Bus::with(['routes', 'drivers' => function($q) {
+        return Bus::with(['routes.haltes', 'routes.polylines', 'drivers' => function($q) {
             $today = now()->toDateString();
             $q->wherePivot('tanggal_mulai', '<=', $today)
               ->where(function ($q2) use ($today) {
