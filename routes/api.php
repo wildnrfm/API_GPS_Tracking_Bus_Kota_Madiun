@@ -190,6 +190,7 @@ Route::middleware(['auth:api', 'driver'])->prefix('driver')->group(function () {
     Route::post('attendance/scan', [AttendanceController::class, 'scan']);
     Route::put('attendance/checkout', [AttendanceController::class, 'checkOut']);
     Route::get('buses/{busId}/report', [DriverController::class, 'dailyReport']);
+    Route::get('buses/{busId}/students', [DriverController::class, 'myBusStudents']);
     // Daftar penumpang hari ini di bus driver — untuk dashboard & checkout
     Route::get('buses/{busId}/attendance/today', [AttendanceController::class, 'byBusToday']);
 });

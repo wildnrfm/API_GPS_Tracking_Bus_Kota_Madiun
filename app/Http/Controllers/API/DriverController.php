@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Services\DriverService;
+use App\Services\BusService;
 use App\Constants\AppMessages;
 use App\Models\Bus;
 use App\Models\BusDriver;
@@ -14,8 +15,10 @@ use Illuminate\Validation\Rule;
 //menangani operasi driver (CRUD, bus assignments, history), business logic dihandle di DriverService
 class DriverController extends BaseController {
     protected $driverService;
-    public function __construct(DriverService $driverService) {
+    protected $busService;
+    public function __construct(DriverService $driverService, BusService $busService) {
         $this->driverService = $driverService;
+        $this->busService = $busService;
         $this->middleware('auth:api');
     }
 
@@ -235,5 +238,22 @@ class DriverController extends BaseController {
             'attendance_details' => $attendanceDetails
         ];
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    // Daftar siswa yang terdaftar di bus milik driver yang login
+    public function myBusStudents(Request $request, $busId) {
+        $driver = $request->user()->driver;
+        if (!$driver) {
+            return $this->responseNotFound(AppMessages::ERROR_DRIVER_NOT_FOUND);
+        }
+
+        // Pastikan bus ini memang milik driver yang login (assignment aktif)
+        $assignment = $driver->buses()->where('bus_id', $busId)->first();
+        if (!$assignment) {
+            return $this->responseForbidden(AppMessages::ERROR_BUS_NOT_ASSIGNED);
+        }
+
+        $students = $this->busService->getBusStudents($busId);
+        return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 }
