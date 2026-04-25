@@ -336,10 +336,10 @@ class AttendanceController extends BaseController {
                 'attendance_id' => $a->id,
                 'qr_id'         => $a->qr_id,
                 'student_id'    => $a->student_id,
-                'student_name'  => $a->student->user->name ?? '-',
-                'student_nis'   => $a->student->nis ?? '-',
-                'bus_code'      => $a->bus->kode_bus ?? '-',
-                'halte_naik'    => $a->halteNaik->nama_halte ?? '-',
+                'student_name'  => $a->student?->user?->name ?? '-',
+                'student_nis'   => $a->student?->nis ?? '-',
+                'bus_code'      => $a->bus?->kode_bus ?? '-',
+                'halte_naik'    => $a->halteNaik?->nama_halte ?? '-',
                 'waktu_naik'    => $a->waktu_naik,
                 'waktu_turun'   => $a->waktu_turun,
                 'status'        => $a->status,
@@ -379,10 +379,14 @@ class AttendanceController extends BaseController {
         if (!$student) {
             return $this->responseNotFound('Profil siswa tidak ditemukan');
         }
+        // PERBAIKAN BUG: sort by id DESC (bukan waktu_naik ASC) agar record terbaru
+        // ada di akhir list. Flutter mengambil list.last — jika sort ASC dan ada
+        // record pending lama + record checked_in baru, Flutter akan salah baca status.
+        // Dengan sort DESC dan ambil list.last, Flutter selalu dapat record terbaru.
         $attendances = Attendance::where('student_id', $student->id)
             ->whereDate('tanggal', now()->toDateString())
             ->with(['bus', 'halteNaik'])
-            ->orderBy('waktu_naik', 'asc')
+            ->orderBy('id', 'asc') // asc agar list.last = paling baru (id terbesar)
             ->get();
 
         $data = $attendances->map(function ($a) {
@@ -390,8 +394,9 @@ class AttendanceController extends BaseController {
                 'attendance_id' => $a->id,
                 'qr_id'         => $a->qr_id,
                 'bus_id'        => $a->bus_id,
-                'bus_code'      => $a->bus->kode_bus ?? '-',
-                'halte_naik'    => $a->halteNaik->nama_halte ?? '-',
+                // PERBAIKAN: optional chain agar tidak crash jika bus dihapus
+                'bus_code'      => $a->bus?->kode_bus ?? '-',
+                'halte_naik'    => $a->halteNaik?->nama_halte ?? '-',
                 'waktu_naik'    => $a->waktu_naik,
                 'waktu_turun'   => $a->waktu_turun,
                 'status'        => $a->status,

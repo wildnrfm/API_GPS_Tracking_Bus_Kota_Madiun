@@ -24,16 +24,20 @@ class BusService {
 
             // Auto-reset GPS:
             // - NULL last_gps_update = sesi lama yang tidak pernah kirim koordinat
-            // - last_gps_update > 5 menit lalu = driver crash/force-close
+            // - last_gps_update > 15 menit lalu = driver crash/force-close
+            // PERBAIKAN: threshold dinaikkan dari 5 → 15 menit agar tidak
+            // salah reset saat driver aktif tapi jaringan sesaat lambat.
+            // Heartbeat GpsService dikirim setiap 90 detik, jadi 15 menit
+            // memberikan margin ~10x sebelum dianggap stale.
             $rawGpsStatus = $assignment?->gps_status ?? 'off';
             $lastUpdate   = $assignment?->last_gps_update;
             $gpsStatus    = $rawGpsStatus;
             if ($rawGpsStatus === 'on') {
                 if (!$lastUpdate) {
-                    // NULL → langsung reset
+                    // NULL → langsung reset (assignment lama yang tidak pernah pakai)
                     $gpsStatus = 'off';
                     $assignment?->update(['gps_status' => 'off']);
-                } elseif (now()->diffInMinutes(Carbon::parse($lastUpdate)) > 5) {
+                } elseif (now()->diffInMinutes(Carbon::parse($lastUpdate)) > 15) {
                     $gpsStatus = 'off';
                     $assignment?->update(['gps_status' => 'off']);
                 }

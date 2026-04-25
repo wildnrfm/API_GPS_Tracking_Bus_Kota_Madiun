@@ -521,9 +521,11 @@ class StudentController extends BaseController {
         $bus = $student->buses()->with(['routes.haltes', 'routes.polylines'])->first();
         if (!$bus) return $this->responseError('No bus assigned to the student.', null, 404);
 
-        // Cek status GPS dari BusDriver (sumber kebenaran utama)
-        // Jika driver matikan GPS, gps_status = 'off' dan kita TIDAK tampilkan posisi
-        $today = now()->toDateString();
+        // Cek status GPS dari BusDriver (sumber kebenaran utama).
+        // Gunakan Carbon\Carbon::today() dengan timezone lokal agar konsisten
+        // dengan recorded_at yang disimpan menggunakan now() di GpsTrackController.
+        $today = \Carbon\Carbon::today()->toDateString();
+
         $busDriver = \App\Models\BusDriver::where('bus_id', $bus->id)
             ->where(function ($q) use ($today) {
                 $q->whereNull('tanggal_selesai')
@@ -534,18 +536,34 @@ class StudentController extends BaseController {
             ->orderBy('last_gps_update', 'desc')
             ->first();
 
+        // gps_status = 'on' berarti driver sudah aktifkan GPS — ini sudah cukup
+        // untuk menandai bus "aktif" di sisi siswa, meskipun koordinat belum masuk.
         $gpsStatusOn = $busDriver && $busDriver->gps_status === 'on';
 
-        // Ambil posisi GPS terakhir HANYA jika GPS memang sedang aktif
+        // Ambil posisi GPS terakhir jika GPS aktif.
+        // PERBAIKAN: filter diperluas ke 2 hari terakhir menggunakan
+        // ->where('recorded_at', '>=', ...) agar tidak miss data saat timezone
+        // server dan device sedikit berbeda (selisih < 24 jam).
         $gpsTrack = null;
         if ($gpsStatusOn) {
-            // Filter hari ini agar tidak pakai posisi dari hari kemarin
+            // Coba ambil data hari ini terlebih dahulu
             $gpsTrack = GpsTrack::where('bus_id', $bus->id)
                 ->whereDate('recorded_at', $today)
                 ->where('latitude', '!=', 0)
                 ->where('longitude', '!=', 0)
                 ->orderBy('recorded_at', 'desc')
                 ->first();
+
+            // Fallback: ambil data terbaru dalam 2 jam terakhir jika data hari ini belum ada
+            // (driver baru toggle GPS tapi belum sempat kirim koordinat pertama)
+            if (!$gpsTrack) {
+                $gpsTrack = GpsTrack::where('bus_id', $bus->id)
+                    ->where('recorded_at', '>=', now()->subHours(2))
+                    ->where('latitude', '!=', 0)
+                    ->where('longitude', '!=', 0)
+                    ->orderBy('recorded_at', 'desc')
+                    ->first();
+            }
         }
 
         // Halte penjemputan siswa ini
@@ -581,9 +599,13 @@ class StudentController extends BaseController {
             'bus_id'      => $bus->id,
             'bus_code'    => $bus->kode_bus,
             'bus_plate'   => $bus->plat_nomor,
-            // gps_active HANYA true jika driver benar-benar sedang aktif (gps_status = 'on')
-            'gps_active'  => $gpsStatusOn && $gpsTrack !== null,
-            // Posisi null jika GPS off — Flutter tidak akan tampilkan marker
+            // PERBAIKAN: gps_active = true jika driver sudah toggle ON,
+            // terlepas dari apakah koordinat pertama sudah diterima atau belum.
+            // Sebelumnya: $gpsStatusOn && $gpsTrack !== null — ini menyebabkan
+            // bus tidak terdeteksi di siswa saat driver baru saja aktifkan GPS
+            // tapi koordinat pertama belum masuk ke server.
+            'gps_active'  => $gpsStatusOn,
+            // Posisi null jika GPS off atau koordinat belum diterima
             'position'    => ($gpsStatusOn && $gpsTrack) ? [
                 'latitude'    => (float) $gpsTrack->latitude,
                 'longitude'   => (float) $gpsTrack->longitude,
