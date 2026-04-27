@@ -52,46 +52,62 @@ class AttendanceController extends BaseController {
             'longitude.between' => 'Longitude harus berada antara -180 sampai 180',
         ]);
 
-        // validate Student exists dan approved
+        // ── VALIDASI UTAMA: bus driver harus = bus siswa ─────────────────────────
+        // Backend TIDAK percaya bus_id dari request/QR karena bisa dimanipulasi.
+        // Backend cari sendiri bus milik driver yang login, lalu bandingkan
+        // dengan bus yang terdaftar untuk siswa.
+        // Dengan cara ini, driver Bus A tidak bisa scan siswa Bus B meski QR-nya valid.
+
         $student = Student::findOrFail($data['student_id']);
         if ($student->approval_status !== 'approved') {
             return $this->responseForbidden('Siswa belum di-approve');
         }
 
-        // Validate Tanggal dari QR = hari ini
-        if ($data['tanggal'] !== now()->toDateString()) {
-            return $this->responseError('QR Code sudah expired atau tanggal tidak sesuai', 400);
+        // 1. Cari bus milik driver yang sedang login (bukan dari request)
+        $driverProfile = $driver->driver;
+        $today = now()->toDateString();
+        $driverBusAssignment = $driverProfile
+            ? \App\Models\BusDriver::where('driver_id', $driverProfile->id)
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('tanggal_selesai')
+                      ->orWhere('tanggal_selesai', '>=', $today);
+                })
+                ->with('bus.routes')
+                ->first()
+            : null;
+
+        if (!$driverBusAssignment || !$driverBusAssignment->bus) {
+            return $this->responseError('Driver tidak memiliki bus yang aktif hari ini.', 403);
         }
 
-        // Validate Bus status aktif
-        $bus = Bus::findOrFail($data['bus_id']);
-        if ($bus->status !== 'aktif') {
-            return $this->responseForbidden('Bus tidak dalam status operasional');
-        }
+        // Gunakan bus milik driver (bukan bus_id dari QR)
+        $bus = $driverBusAssignment->bus;
 
-        // Validate Siswa di-assign ke bus ini
-        $studentBusAssignment = StudentBus::where('student_id', $student->id)->where('bus_id', $bus->id)->first();
+        // 2. Cek apakah siswa terdaftar di bus driver ini
+        $studentBusAssignment = StudentBus::where('student_id', $student->id)
+            ->where('bus_id', $bus->id)
+            ->first();
+
         if (!$studentBusAssignment) {
-            // Ambil info bus yang seharusnya digunakan siswa (untuk pesan error yang informatif)
+            // Ambil info bus yang seharusnya untuk pesan error yang informatif
             $correctAssignment = StudentBus::where('student_id', $student->id)
                 ->with(['bus.routes'])
                 ->first();
 
             $correctBusInfo = null;
-            if ($correctAssignment && $correctAssignment->bus) {
-                $correctBus = $correctAssignment->bus;
-                $correctRoute = $correctBus->routes->first();
+            if ($correctAssignment?->bus) {
+                $correctRoute = $correctAssignment->bus->routes->first();
                 $correctBusInfo = [
-                    'bus_id'    => $correctBus->id,
-                    'kode_bus'  => $correctBus->kode_bus,
-                    'nama_rute' => $correctRoute ? $correctRoute->nama_rute : '-',
+                    'bus_id'    => $correctAssignment->bus->id,
+                    'kode_bus'  => $correctAssignment->bus->kode_bus,
+                    'nama_rute' => $correctRoute?->nama_rute ?? '-',
                 ];
             }
 
             return response()->json([
-                'success' => false,
-                'message' => 'Rute tidak sesuai. Siswa ini tidak terdaftar di bus ini.',
-                'error_type' => 'route_mismatch',
+                'success'      => false,
+                'message'      => 'Rute tidak sesuai. Siswa ini tidak terdaftar di bus kamu.',
+                'error_type'   => 'route_mismatch',
                 'student_name' => $student->user->name,
                 'student_nis'  => $student->nis,
                 'scanned_bus'  => [
@@ -99,8 +115,18 @@ class AttendanceController extends BaseController {
                     'kode_bus'  => $bus->kode_bus,
                     'nama_rute' => $bus->routes->first()->nama_rute ?? '-',
                 ],
-                'correct_bus' => $correctBusInfo,
+                'correct_bus'  => $correctBusInfo,
             ], 403);
+        }
+
+        // Validate Tanggal dari QR = hari ini
+        if ($data['tanggal'] !== $today) {
+            return $this->responseError('QR Code sudah expired atau tanggal tidak sesuai', 400);
+        }
+
+        // Validate Bus masih aktif
+        if ($bus->status !== 'aktif') {
+            return $this->responseForbidden('Bus tidak dalam status operasional');
         }
 
         //Validate Jarak driver dengan siswa < 100m (gunakan halte sebagai proksi)
@@ -246,13 +272,16 @@ class AttendanceController extends BaseController {
             return $this->responseError('Attendance tidak ditemukan', 404);
         }
 
-        // validate Attendance ini sudah check-in (waktu_naik ada)
-        if (!$attendance->waktu_naik) {
-            return $this->responseError('Attendance belum check-in, tidak bisa checkout', 400);
+        // PERBAIKAN: validasi lengkap sebelum checkout
+        // Cek status explicitly - jangan hanya cek waktu_naik
+        if ($attendance->status === 'pending' || !$attendance->waktu_naik) {
+            return $this->responseError(
+                'Siswa belum naik bus (QR belum discan saat naik). Tidak bisa checkout.',
+                400
+            );
         }
 
-        //validate belum checkout (waktu_turun null)
-        if ($attendance->waktu_turun) {
+        if ($attendance->status === 'checked_out' || $attendance->waktu_turun) {
             return $this->responseConflict([], 'Siswa sudah checkout');
         }
 
@@ -325,8 +354,14 @@ class AttendanceController extends BaseController {
     // Get Absensi hari ini berdasarkan bus
     public function byBusToday(Request $request, $busId) {
         $bus = Bus::findOrFail($busId);
+        // PERBAIKAN BUG: tambah filter status agar record 'pending' tidak ikut tampil.
+        // Record 'pending' = siswa sudah generate QR tapi belum discan driver.
+        // Tanpa filter ini, siswa pending muncul di list "Di Bus" dengan tombol Checkout
+        // padahal mereka belum naik sama sekali — driver bisa checkout siswa yang belum naik.
         $attendances = Attendance::where('bus_id', $busId)
             ->whereDate('tanggal', now()->toDateString())
+            ->whereIn('status', ['checked_in', 'checked_out'])
+            ->whereNotNull('waktu_naik')
             ->with(['student.user', 'halteNaik'])
             ->orderBy('waktu_naik', 'asc')
             ->get();
@@ -336,10 +371,10 @@ class AttendanceController extends BaseController {
                 'attendance_id' => $a->id,
                 'qr_id'         => $a->qr_id,
                 'student_id'    => $a->student_id,
-                'student_name'  => $a->student?->user?->name ?? '-',
-                'student_nis'   => $a->student?->nis ?? '-',
-                'bus_code'      => $a->bus?->kode_bus ?? '-',
-                'halte_naik'    => $a->halteNaik?->nama_halte ?? '-',
+                'student_name'  => $a->student->user->name ?? '-',
+                'student_nis'   => $a->student->nis ?? '-',
+                'bus_code'      => $a->bus->kode_bus ?? '-',
+                'halte_naik'    => $a->halteNaik->nama_halte ?? '-',
                 'waktu_naik'    => $a->waktu_naik,
                 'waktu_turun'   => $a->waktu_turun,
                 'status'        => $a->status,
@@ -379,14 +414,14 @@ class AttendanceController extends BaseController {
         if (!$student) {
             return $this->responseNotFound('Profil siswa tidak ditemukan');
         }
-        // PERBAIKAN BUG: sort by id DESC (bukan waktu_naik ASC) agar record terbaru
-        // ada di akhir list. Flutter mengambil list.last — jika sort ASC dan ada
-        // record pending lama + record checked_in baru, Flutter akan salah baca status.
-        // Dengan sort DESC dan ambil list.last, Flutter selalu dapat record terbaru.
+        // PERBAIKAN: urutkan agar record checked_in/checked_out (yang aktif)
+        // selalu di akhir list → Flutter ambil list.last = status terbaru yang relevan.
+        // Ini mencegah status 'pending' lama override status 'checked_in' baru.
         $attendances = Attendance::where('student_id', $student->id)
             ->whereDate('tanggal', now()->toDateString())
             ->with(['bus', 'halteNaik'])
-            ->orderBy('id', 'asc') // asc agar list.last = paling baru (id terbesar)
+            ->orderByRaw("CASE WHEN status IN ('checked_in','checked_out') THEN 1 ELSE 0 END ASC")
+            ->orderBy('id', 'asc')
             ->get();
 
         $data = $attendances->map(function ($a) {
@@ -394,7 +429,6 @@ class AttendanceController extends BaseController {
                 'attendance_id' => $a->id,
                 'qr_id'         => $a->qr_id,
                 'bus_id'        => $a->bus_id,
-                // PERBAIKAN: optional chain agar tidak crash jika bus dihapus
                 'bus_code'      => $a->bus?->kode_bus ?? '-',
                 'halte_naik'    => $a->halteNaik?->nama_halte ?? '-',
                 'waktu_naik'    => $a->waktu_naik,

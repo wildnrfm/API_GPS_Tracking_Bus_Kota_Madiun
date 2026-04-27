@@ -85,7 +85,6 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::post('students/{id}/suspend', [StudentController::class, 'suspend']);
     Route::post('students/{id}/unsuspend', [StudentController::class, 'unsuspend']);
     Route::delete('students/{id}', [StudentController::class, 'destroy']);
-    Route::get('students/{id}/barcode', [StudentController::class, 'barcode']);
 
     // buses
     Route::get('buses', [BusController::class, 'index']);

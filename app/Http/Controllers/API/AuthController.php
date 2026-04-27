@@ -194,13 +194,20 @@ class AuthController extends BaseController {
     //Update profil user (name, email)
     public function updateProfile(Request $request) {
         $user = $request->user();
+        // PERBAIKAN: tambah no_hp dan alamat agar bisa tersimpan ke DB.
+        // Sebelumnya hanya name & email yang diterima → no_hp dan alamat
+        // hanya terupdate di memori Flutter tapi hilang saat login ulang.
         $data = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'email' => ['sometimes', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'name'   => 'sometimes|string|max:255',
+            'email'  => ['sometimes', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'no_hp'  => 'sometimes|nullable|string|max:20',
+            'alamat' => 'sometimes|nullable|string|max:500',
         ], [
-            'name.max' => 'Nama maksimal 255 karakter',
-            'email.email' => AppMessages::ERROR_EMAIL_INVALID,
-            'email.unique' => 'Email sudah terdaftar',
+            'name.max'      => 'Nama maksimal 255 karakter',
+            'email.email'   => AppMessages::ERROR_EMAIL_INVALID,
+            'email.unique'  => 'Email sudah terdaftar',
+            'no_hp.max'     => 'No HP maksimal 20 karakter',
+            'alamat.max'    => 'Alamat maksimal 500 karakter',
         ]);
         if (empty($data)) {
             return $this->responseSuccess($user, 'Tidak ada data yang diubah');
