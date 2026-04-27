@@ -180,7 +180,12 @@ class BusService {
 
     public function getBusStudents($busId) {
         $bus = Bus::findOrFail($busId);
-        return $bus->students()->with('user')->paginate(15);
+        // FIX: sertakan pivot halte_id dan pastikan relasi user ter-load.
+        // withPivot('halte_id') diperlukan agar Flutter bisa baca halte siswa.
+        return $bus->students()
+            ->with('user')
+            ->withPivot('halte_id')
+            ->paginate(15);
     }
 
     public function getBusDrivers($busId) {
