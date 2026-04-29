@@ -92,124 +92,45 @@ class ReportGeneratorService {
             ->orderByDesc('tanggal_mulai')
             ->first();
 
-        $namaDriver  = $activeDriver?->driver->user->name ?? '-';
-        $noTelepon   = $activeDriver?->driver->no_hp ?? '-';
-        $platNomor   = $bus->plat_nomor ?? '-';
-        $kodeBus     = $bus->kode_bus ?? '-';
-        $totalSiswa  = $reportData['total_attendances'];
+        $namaDriver    = $activeDriver?->driver->user->name ?? '-';
+        $noTelepon     = $activeDriver?->driver->no_hp ?? '-';
+        $platNomor     = $bus->plat_nomor ?? '-';
+        $kodeBus       = $bus->kode_bus ?? '-';
+        $totalSiswa    = $reportData['total_attendances'];
         $totalCheckout = collect($reportData['reports'])->where('checkout', 'Yes')->count();
-        $tanggalFormatted = Carbon::parse($tanggal)->translatedFormat('d F Y');
 
-        $html = <<<HTML
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a2e; margin: 20px; }
-  h1   { text-align: center; font-size: 16px; color: #1a1a2e; margin-bottom: 4px; }
-  .subtitle { text-align: center; font-size: 11px; color: #666; margin-bottom: 16px; }
-  .info-box { background: #f5f9f0; border: 1px solid #c8e6c9; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }
-  .info-grid { display: table; width: 100%; }
-  .info-row  { display: table-row; }
-  .info-label{ display: table-cell; font-weight: bold; width: 140px; padding: 2px 0; color: #2e7d32; }
-  .info-val  { display: table-cell; padding: 2px 0; }
-  .summary   { background: #1a1a2e; color: white; border-radius: 6px; padding: 8px 14px; margin-bottom: 14px; display: flex; gap: 20px; }
-  .sum-item  { text-align: center; flex: 1; }
-  .sum-num   { font-size: 22px; font-weight: bold; }
-  .sum-lbl   { font-size: 10px; opacity: 0.75; }
-  table      { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  thead tr   { background: #2e7d32; color: white; }
-  th, td     { border: 1px solid #ddd; padding: 5px 7px; text-align: left; font-size: 10px; }
-  tr:nth-child(even) { background: #f5f5f5; }
-  .badge-yes { background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 10px; font-weight: bold; }
-  .badge-no  { background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 10px; }
-  .footer    { margin-top: 14px; font-size: 9px; color: #aaa; text-align: right; }
-  .no-data   { text-align: center; color: #999; padding: 20px; }
-</style>
-</head>
-<body>
-<h1>LAPORAN OPERASIONAL HARIAN BUS</h1>
-<div class="subtitle">Sistem Informasi Bus Sekolah — Mobitra</div>
-
-<div class="info-box">
-  <div class="info-grid">
-    <div class="info-row"><div class="info-label">Nama Driver</div><div class="info-val">{$namaDriver}</div></div>
-    <div class="info-row"><div class="info-label">No. Telepon</div><div class="info-val">{$noTelepon}</div></div>
-    <div class="info-row"><div class="info-label">Kode Bus</div><div class="info-val">{$kodeBus}</div></div>
-    <div class="info-row"><div class="info-label">Plat Nomor</div><div class="info-val">{$platNomor}</div></div>
-    <div class="info-row"><div class="info-label">Tanggal</div><div class="info-val">{$tanggalFormatted}</div></div>
-  </div>
-</div>
-
-<table style="width:100%; margin-bottom:12px; border:none;">
-  <tr>
-    <td style="border:none; background:#e8f5e9; border-radius:6px; text-align:center; padding:8px;">
-      <div style="font-size:22px; font-weight:bold; color:#2e7d32;">{$totalSiswa}</div>
-      <div style="font-size:10px; color:#666;">Total Penumpang</div>
-    </td>
-    <td style="border:none; width:10px;"></td>
-    <td style="border:none; background:#e3f2fd; border-radius:6px; text-align:center; padding:8px;">
-      <div style="font-size:22px; font-weight:bold; color:#1565c0;">{$totalCheckout}</div>
-      <div style="font-size:10px; color:#666;">Sudah Checkout</div>
-    </td>
-    <td style="border:none; width:10px;"></td>
-    <td style="border:none; background:#fff3e0; border-radius:6px; text-align:center; padding:8px;">
-      <div style="font-size:22px; font-weight:bold; color:#e65100;">
-HTML;
-        $belumCheckout = $totalSiswa - $totalCheckout;
-        $html .= <<<HTML
-{$belumCheckout}</div>
-      <div style="font-size:10px; color:#666;">Belum Checkout</div>
-    </td>
-  </tr>
-</table>
-
-<table>
-  <thead>
-    <tr>
-      <th>No</th>
-      <th>Nama Penumpang</th>
-      <th>Waktu Naik</th>
-      <th>Halte Naik</th>
-      <th>Waktu Turun</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-HTML;
-
-        $reps = $reportData['reports'];
-        if (empty($reps) || (is_object($reps) ? $reps->isEmpty() : count($reps) === 0)) {
-            $html .= '<tr><td colspan="6" class="no-data">Tidak ada data absensi untuk tanggal ini.</td></tr>';
-        } else {
-            foreach ($reps as $r) {
-                $wn = $r['waktu_naik']  ? Carbon::parse($r['waktu_naik'])->format('H:i')  : '-';
-                $wt = $r['waktu_turun'] ? Carbon::parse($r['waktu_turun'])->format('H:i') : '-';
-                $badge = $r['checkout'] === 'Yes'
-                    ? '<span class="badge-yes">✓ Turun</span>'
-                    : '<span class="badge-no">⏳ Di Bus</span>';
-                $html .= "<tr>
-                    <td>{$r['no']}</td>
-                    <td>" . e($r['nama_penumpang']) . "</td>
-                    <td>{$wn}</td>
-                    <td>" . e($r['halte_naik']) . "</td>
-                    <td>{$wt}</td>
-                    <td>{$badge}</td>
-                  </tr>";
+        // Siapkan data passengers dengan durasi perjalanan
+        $passengers = collect($reportData['reports'])->map(function ($r) {
+            $durasi = '-';
+            if ($r['waktu_naik'] && $r['waktu_turun']) {
+                $durasi = $this->calculateDuration(
+                    Carbon::parse($r['waktu_naik']),
+                    Carbon::parse($r['waktu_turun'])
+                );
             }
-        }
+            return array_merge($r, ['durasi_perjalanan' => $durasi]);
+        })->toArray();
 
-        $dicetak = now()->format('d/m/Y H:i');
-        $html .= <<<HTML
-  </tbody>
-</table>
-<div class="footer">Dicetak: {$dicetak} &nbsp;|&nbsp; Mobitra Bus Tracking System</div>
-</body></html>
-HTML;
+        // Render HTML dari blade view
+        $viewData = [
+            'report' => [
+                'driver_name'      => $namaDriver,
+                'driver_phone'     => $noTelepon,
+                'bus_code'         => $kodeBus,
+                'bus_plate'        => $platNomor,
+                'tanggal'          => $tanggal,
+                'total_penumpang'  => $totalSiswa,
+                'penumpang_naik'   => $totalSiswa,
+                'penumpang_turun'  => $totalCheckout,
+                'passengers'       => $passengers,
+            ],
+        ];
+
+        $html = view('reports.driver-report', $viewData)->render();
 
         $dompdf = new Dompdf();
         $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->setPaper('A4', 'landscape');
         $dompdf->render();
 
         return ['content' => $dompdf->output(), 'driver_name' => $namaDriver];

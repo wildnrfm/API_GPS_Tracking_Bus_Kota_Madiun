@@ -116,31 +116,130 @@ class ReportController extends BaseController {
             'tanggal' => 'required|date_format:Y-m-d',
         ]);
         $tanggal = $request->input('tanggal');
-        $dailyReports = DailyReport::with(['bus', 'bus.driver', 'bus.driver.user'])->whereDate('created_at', $tanggal)->get();
-        $html = '<h1 style="text-align: center;">Laporan Harian Admin</h1>';
-        $html .= '<p style="text-align: center; font-size: 14px;">' . e($tanggal) . '</p>';
-        $html .= '<table border="1" cellpadding="4" cellspacing="0" width="100%">';
-        $html .= '<thead><tr><th>No.</th><th>Kode Bus</th><th>Plat</th><th>Driver</th><th>No Telepon</th><th>Total Penumpang</th><th>Catatan Driver</th></tr></thead>';
-        $html .= '<tbody>';
-        foreach ($dailyReports as $index => $report) {
-            $html .= '<tr>' .
-                        '<td>' . ($index + 1) . '</td>' .
-                        '<td>' . e($report->bus->kode_bus ?? '-') . '</td>' .
-                        '<td>' . e($report->bus->plat_nomor ?? '-') . '</td>' .
-                        '<td>' . e($report->bus->driver->user->name ?? '-') . '</td>' .
-                        '<td>' . e($report->bus->driver->no_hp ?? '-') . '</td>' .
-                        '<td>' . e($report->total_penumpang) . '</td>' .
-                        '<td>' . e($report->catatan_driver) . '</td>' .
-                    '</tr>';
-        }
-        $html .= '</tbody></table>';
+        $today   = $tanggal;
+
+        // FIX: pakai whereDate('tanggal') bukan 'created_at'
+        // FIX: load relasi yang benar — busDriver->driver->user, bukan bus->driver
+        $dailyReports = DailyReport::with([
+                'bus',
+                'busDriver.driver.user',
+            ])
+            ->whereDate('tanggal', $today)
+            ->get();
+
+        // Bangun data lengkap per bus untuk laporan admin
+        $busSummary = $dailyReports->map(function ($report) use ($today) {
+            $bus       = $report->bus;
+            $busDriver = $report->busDriver;
+            $driver    = $busDriver?->driver;
+
+            // Attendance hari ini untuk bus ini
+            $attendances = \App\Models\Attendance::with(['student.user', 'halteNaik'])
+                ->where('bus_id', $bus->id)
+                ->whereDate('tanggal', $today)
+                ->whereNotNull('waktu_naik')
+                ->get();
+
+            $boardingCount  = $attendances->count();
+            $alightingCount = $attendances->whereNotNull('waktu_turun')->count();
+            $belumTurun     = $boardingCount - $alightingCount;
+
+            // Waktu operasi (naik pertama → turun terakhir)
+            $waktuMulai = $attendances->whereNotNull('waktu_naik')
+                ->sortBy('waktu_naik')->first()?->waktu_naik;
+            $waktuSelesai = $attendances->whereNotNull('waktu_turun')
+                ->sortByDesc('waktu_turun')->first()?->waktu_turun;
+
+            $durasiOps = '-';
+            if ($waktuMulai && $waktuSelesai) {
+                $menit = \Carbon\Carbon::parse($waktuMulai)
+                    ->diffInMinutes(\Carbon\Carbon::parse($waktuSelesai));
+                $jam   = intdiv($menit, 60);
+                $sisa  = $menit % 60;
+                $durasiOps = $jam > 0 ? "{$jam}j {$sisa}m" : "{$sisa}m";
+            }
+
+            // Kecepatan rata-rata GPS hari ini
+            $gpsData = \App\Models\GpsTrack::where('bus_id', $bus->id)
+                ->whereDate('recorded_at', $today)
+                ->where('speed', '>', 0)
+                ->avg('speed');
+            $avgSpeed = $gpsData ? round($gpsData, 1) . ' km/h' : '-';
+
+            // Halte yang paling banyak dipakai
+            $topHalte = $attendances->groupBy('halte_naik_id')
+                ->map(fn($g) => [
+                    'nama'  => $g->first()?->halteNaik?->nama_halte ?? '-',
+                    'count' => $g->count(),
+                ])
+                ->sortByDesc('count')
+                ->first();
+
+            return [
+                'bus_code'        => $bus->kode_bus ?? '-',
+                'bus_plate'       => $bus->plat_nomor ?? '-',
+                'driver_name'     => $driver?->user?->name ?? '-',
+                'driver_phone'    => $driver?->no_hp ?? '-',
+                'total_penumpang' => $report->total_penumpang ?? $boardingCount,
+                'boarding_count'  => $boardingCount,
+                'alighting_count' => $alightingCount,
+                'belum_turun'     => $belumTurun,
+                'durasi_operasi'  => $durasiOps,
+                'avg_speed'       => $avgSpeed,
+                'top_halte'       => $topHalte ? $topHalte['nama'] . ' (' . $topHalte['count'] . 'x)' : '-',
+                'catatan'         => $report->catatan_driver ?? '-',
+                'waktu_mulai'     => $waktuMulai
+                    ? \Carbon\Carbon::parse($waktuMulai)->format('H:i') : '-',
+                'waktu_selesai'   => $waktuSelesai
+                    ? \Carbon\Carbon::parse($waktuSelesai)->format('H:i') : '-',
+            ];
+        });
+
+        $totalPenumpang  = $busSummary->sum('boarding_count');
+        $totalCheckout   = $busSummary->sum('alighting_count');
+        $totalBelumTurun = $busSummary->sum('belum_turun');
+        $completion      = $totalPenumpang > 0
+            ? round(($totalCheckout / $totalPenumpang) * 100, 1) : 0;
+
+        // Halte tersibuk hari ini (lintas semua bus)
+        $allAttendances = \App\Models\Attendance::with('halteNaik')
+            ->whereDate('tanggal', $today)
+            ->whereNotNull('waktu_naik')
+            ->get();
+        $halteStats = $allAttendances->groupBy('halte_naik_id')
+            ->map(fn($g) => [
+                'nama'  => $g->first()?->halteNaik?->nama_halte ?? '-',
+                'count' => $g->count(),
+            ])
+            ->sortByDesc('count')
+            ->take(5)
+            ->values()
+            ->toArray();
+
+        $viewData = [
+            'report' => [
+                'tanggal'          => $tanggal,
+                'total_buses'      => $dailyReports->count(),
+                'total_passengers' => $totalPenumpang,
+                'total_checkout'   => $totalCheckout,
+                'total_belum_turun'=> $totalBelumTurun,
+                'completion_rate'  => $completion,
+                'buses'            => $busSummary->values()->toArray(),
+                'halte_stats'      => $halteStats,
+            ],
+        ];
+
+        $html = view('reports.admin-report', $viewData)->render();
+
         $dompdf = new Dompdf();
         $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->setPaper('A4', 'landscape');
         $dompdf->render();
         $pdfContent = $dompdf->output();
         $filename = "laporan_harian_admin_{$tanggal}.pdf";
-        return response($pdfContent, 200)->header('Content-Type', 'application/pdf')->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
+        return response($pdfContent, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
     }
 
     //download laporan driver sebagai PDF

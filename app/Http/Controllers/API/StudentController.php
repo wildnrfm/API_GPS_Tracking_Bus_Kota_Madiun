@@ -294,9 +294,12 @@ class StudentController extends BaseController {
 
         // Cek apakah bus sudah sangat dekat ke siswa (bus datang menjemput)
         // Ini sebagai fallback jika siswa sedikit meleset dari titik halte
+        // FIX: filter GPS yang terekam dalam 10 menit terakhir saja —
+        // agar GPS lama (bus tidak aktif) tidak bisa lolos validasi proximity
         $latestGps = GpsTrack::where('bus_id', $bus->id)
             ->where('latitude', '!=', 0)
             ->where('longitude', '!=', 0)
+            ->where('recorded_at', '>=', now()->subMinutes(10))
             ->orderBy('recorded_at', 'desc')
             ->first();
 
@@ -313,13 +316,16 @@ class StudentController extends BaseController {
             $busIsNear = $distanceToBus <= 75;
         }
 
-        // Validasi: siswa harus dekat halte ATAU bus sudah tiba mendekati siswa
-        $maxDistance = env('APP_ENV') === 'production' ? 100 : 999999;
+        // FIX: jarak maksimal selalu 100m di semua environment —
+        // tidak ada lagi bypass 999999m untuk local/development
+        $maxDistance = 100;
         if ($nearestDistance > $maxDistance && !$busIsNear) {
             $msg = "Kamu belum berada di dekat halte. "
                  . "Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m).";
             if ($distanceToBus !== null) {
                 $msg .= " Jarak ke bus: {$distanceToBus}m.";
+            } else {
+                $msg .= " Bus belum mengaktifkan GPS atau belum beroperasi.";
             }
             $msg .= " Tunggu di halte atau tunggu bus mendekati kamu.";
             return $this->responseError($msg, 400);
