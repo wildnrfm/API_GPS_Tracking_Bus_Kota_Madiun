@@ -209,8 +209,8 @@ class ReportGeneratorService {
             $driver = $activeDriver?->driver;
             // Format waktu sebagai string ISO agar konsisten di frontend
             // $attendance->waktu_naik sudah di-cast sebagai datetime di model
-            $waktuNaikStr  = $attendance->waktu_naik  ? $attendance->waktu_naik->toIso8601String()  : null;
-            $waktuTurunStr = $attendance->waktu_turun ? $attendance->waktu_turun->toIso8601String() : null;
+            $waktuNaikStr  = $attendance->waktu_naik  ? $attendance->waktu_naik->setTimezone(config('app.timezone'))->toIso8601String()  : null;
+            $waktuTurunStr = $attendance->waktu_turun ? $attendance->waktu_turun->setTimezone(config('app.timezone'))->toIso8601String() : null;
             return [
                 'no'             => $index + 1,
                 'nama_penumpang' => $attendance->student->user->name ?? '-',
@@ -220,7 +220,7 @@ class ReportGeneratorService {
                 'lat_lng_turun'  => ($attendance->lat_turun ?? '-') . ', ' . ($attendance->lng_turun ?? '-'),
                 'checkout'       => $attendance->waktu_turun ? 'Yes' : 'No',
                 'plat'           => $attendance->bus->plat_nomor ?? '-',
-                'no_telepon'     => $driver->no_hp ?? '-',
+                'no_telepon'     => $attendance->student->no_hp ?? '-',
                 'tanggal'        => $date,
             ];
         });

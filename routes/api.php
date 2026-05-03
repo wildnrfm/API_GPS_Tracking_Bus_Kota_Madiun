@@ -49,6 +49,9 @@ Route::middleware('auth:api')->group(function () {
         Route::match(['get', 'post'], 'driver/download-pdf', [ReportController::class, 'downloadDriverReportPDF']);
         Route::match(['get', 'post'], 'driver/download-excel', [ReportController::class, 'downloadDriverReportExcel']);
     });
+
+    // Daily report — driver submit laporan selesai bertugas
+    Route::post('daily-reports', [DailyReportController::class, 'store']);
 });
 
 // ─── ADMIN ONLY ───────────────────────────────────────────────
@@ -150,10 +153,9 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('buses/{id}/attendance/today', [AttendanceController::class, 'byBusToday']);
     Route::get('students/{id}/attendance/today', [AttendanceController::class, 'studentTodayAttendance']);
 
-    // daily reports
+    // daily reports (admin: GET, update, delete, generate)
     Route::get('daily-reports', [DailyReportController::class, 'index']);
     Route::get('daily-reports/{id}', [DailyReportController::class, 'show']);
-    Route::post('daily-reports', [DailyReportController::class, 'store']);
     Route::put('daily-reports/{id}', [DailyReportController::class, 'update']);
     Route::delete('daily-reports/{id}', [DailyReportController::class, 'destroy']);
     Route::get('reports/generate', [DailyReportController::class, 'generateAll']);

@@ -118,20 +118,27 @@ class ReportController extends BaseController {
         $tanggal = $request->input('tanggal');
         $today   = $tanggal;
 
-        // FIX: pakai whereDate('tanggal') bukan 'created_at'
-        // FIX: load relasi yang benar — busDriver->driver->user, bukan bus->driver
-        $dailyReports = DailyReport::with([
-                'bus',
-                'busDriver.driver.user',
-            ])
-            ->whereDate('tanggal', $today)
-            ->get();
+        // Ambil semua bus yang punya attendance hari ini
+        $busIds = \App\Models\Attendance::whereDate('tanggal', $today)
+            ->whereNotNull('waktu_naik')
+            ->pluck('bus_id')
+            ->unique();
 
-        // Bangun data lengkap per bus untuk laporan admin
-        $busSummary = $dailyReports->map(function ($report) use ($today) {
-            $bus       = $report->bus;
-            $busDriver = $report->busDriver;
-            $driver    = $busDriver?->driver;
+        $buses = \App\Models\Bus::whereIn('id', $busIds)->get();
+
+        $busSummary = $buses->map(function ($bus) use ($today) {
+            // Cari driver aktif hari ini dari tabel bus_driver langsung
+            $activeBusDriver = \App\Models\BusDriver::with('driver.user')
+                ->where('bus_id', $bus->id)
+                ->where('tanggal_mulai', '<=', $today)
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('tanggal_selesai')
+                      ->orWhere('tanggal_selesai', '>=', $today);
+                })
+                ->orderByDesc('tanggal_mulai')
+                ->first();
+
+            $driver = $activeBusDriver?->driver;
 
             // Attendance hari ini untuk bus ini
             $attendances = \App\Models\Attendance::with(['student.user', 'halteNaik'])
@@ -175,23 +182,36 @@ class ReportController extends BaseController {
                 ->sortByDesc('count')
                 ->first();
 
+            // Cari laporan harian jika ada
+            $dailyReport = \App\Models\DailyReport::where('bus_id', $bus->id)
+                ->whereDate('tanggal', $today)
+                ->first();
+
             return [
                 'bus_code'        => $bus->kode_bus ?? '-',
                 'bus_plate'       => $bus->plat_nomor ?? '-',
                 'driver_name'     => $driver?->user?->name ?? '-',
                 'driver_phone'    => $driver?->no_hp ?? '-',
-                'total_penumpang' => $report->total_penumpang ?? $boardingCount,
+                'total_penumpang' => $boardingCount,
                 'boarding_count'  => $boardingCount,
                 'alighting_count' => $alightingCount,
                 'belum_turun'     => $belumTurun,
                 'durasi_operasi'  => $durasiOps,
                 'avg_speed'       => $avgSpeed,
-                'top_halte'       => $topHalte ? $topHalte['nama'] . ' (' . $topHalte['count'] . 'x)' : '-',
-                'catatan'         => $report->catatan_driver ?? '-',
+                'top_halte'       => $topHalte
+                    ? $topHalte['nama'] . ' (' . $topHalte['count'] . 'x)'
+                    : '-',
+                'catatan'         => $dailyReport?->catatan_driver ?? '-',
                 'waktu_mulai'     => $waktuMulai
-                    ? \Carbon\Carbon::parse($waktuMulai)->format('H:i') : '-',
+                    ? \Carbon\Carbon::parse($waktuMulai)
+                        ->setTimezone(config('app.timezone'))
+                        ->format('H:i')
+                    : '-',
                 'waktu_selesai'   => $waktuSelesai
-                    ? \Carbon\Carbon::parse($waktuSelesai)->format('H:i') : '-',
+                    ? \Carbon\Carbon::parse($waktuSelesai)
+                        ->setTimezone(config('app.timezone'))
+                        ->format('H:i')
+                    : '-',
             ];
         });
 
@@ -219,7 +239,7 @@ class ReportController extends BaseController {
         $viewData = [
             'report' => [
                 'tanggal'          => $tanggal,
-                'total_buses'      => $dailyReports->count(),
+                'total_buses'      => $buses->count(),
                 'total_passengers' => $totalPenumpang,
                 'total_checkout'   => $totalCheckout,
                 'total_belum_turun'=> $totalBelumTurun,
