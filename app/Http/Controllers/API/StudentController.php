@@ -577,9 +577,13 @@ class StudentController extends BaseController {
             'bus_id'      => $bus->id,
             'bus_code'    => $bus->kode_bus,
             'bus_plate'   => $bus->plat_nomor,
-            // gps_active HANYA true jika driver benar-benar sedang aktif (gps_status = 'on')
-            'gps_active'  => $gpsStatusOn && $gpsTrack !== null,
-            // Posisi null jika GPS off — Flutter tidak akan tampilkan marker
+            // [FIX] gps_active = true segera saat driver toggle ON (gps_status='on'),
+            // TIDAK perlu tunggu gps_track masuk dulu.
+            // Sebelumnya: $gpsStatusOn && $gpsTrack !== null
+            // → menyebabkan siswa selalu lihat OFFLINE karena gps_track baru
+            //   ada beberapa detik setelah driver aktifkan GPS.
+            'gps_active'  => $gpsStatusOn,
+            // Posisi null jika GPS off atau belum ada koordinat hari ini
             'position'    => ($gpsStatusOn && $gpsTrack) ? [
                 'latitude'    => (float) $gpsTrack->latitude,
                 'longitude'   => (float) $gpsTrack->longitude,
@@ -649,4 +653,4 @@ class StudentController extends BaseController {
             'nama_halte'=> $halte?->nama_halte ?? '',
         ];
     }
-}
+} 
