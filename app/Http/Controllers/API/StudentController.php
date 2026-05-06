@@ -294,8 +294,7 @@ class StudentController extends BaseController {
 
         // Cek apakah bus sudah sangat dekat ke siswa (bus datang menjemput)
         // Ini sebagai fallback jika siswa sedikit meleset dari titik halte
-        // FIX: filter GPS yang terekam dalam 10 menit terakhir saja —
-        // agar GPS lama (bus tidak aktif) tidak bisa lolos validasi proximity
+        // hal agar GPS lama (bus tidak aktif) tidak bisa lolos validasi proximity
         $latestGps = GpsTrack::where('bus_id', $bus->id)
             ->where('latitude', '!=', 0)
             ->where('longitude', '!=', 0)
@@ -316,12 +315,10 @@ class StudentController extends BaseController {
             $busIsNear = $distanceToBus <= 75;
         }
 
-        // FIX: jarak maksimal selalu 100m di semua environment —
-        // tidak ada lagi bypass 999999m untuk local/development
         $maxDistance = 100;
         if ($nearestDistance > $maxDistance && !$busIsNear) {
             $msg = "Kamu belum berada di dekat halte. "
-                 . "Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m).";
+                . "Halte terdekat: {$nearestDistance}m (diperlukan <{$maxDistance}m).";
             if ($distanceToBus !== null) {
                 $msg .= " Jarak ke bus: {$distanceToBus}m.";
             } else {
@@ -577,9 +574,8 @@ class StudentController extends BaseController {
             'bus_id'      => $bus->id,
             'bus_code'    => $bus->kode_bus,
             'bus_plate'   => $bus->plat_nomor,
-            // [FIX] gps_active = true segera saat driver toggle ON (gps_status='on'),
+            // gps_active = true segera saat driver toggle ON (gps_status='on'),
             // TIDAK perlu tunggu gps_track masuk dulu.
-            // Sebelumnya: $gpsStatusOn && $gpsTrack !== null
             // → menyebabkan siswa selalu lihat OFFLINE karena gps_track baru
             //   ada beberapa detik setelah driver aktifkan GPS.
             'gps_active'  => $gpsStatusOn,
