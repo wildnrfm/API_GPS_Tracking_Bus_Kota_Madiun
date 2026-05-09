@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Mail\StudentApprovedMail;
+use App\Mail\StudentRejectedMail;
 use App\Models\Student;
 use App\Models\User;
 use App\Traits\CreatesUser;
+use Illuminate\Support\Facades\Mail;
 
 class StudentApprovalService {
     use CreatesUser;
@@ -43,9 +46,17 @@ class StudentApprovalService {
         try {
             $student->approval_status = 'approved';
             $student->save();
-            return $student->load('user');
+            $student->load('user');
+
+            // Kirim email notifikasi ke siswa
+            $email = $student->user->email ?? null;
+            if ($email) {
+                Mail::to($email)->send(new StudentApprovedMail($student));
+            }
+
+            return $student;
         } catch (\Exception $e) {
-            throw new \Exception('Gagal mesetujui siswa: ' . $e->getMessage());
+            throw new \Exception('Gagal menyetujui siswa: ' . $e->getMessage());
         }
     }
 
@@ -57,7 +68,15 @@ class StudentApprovalService {
             $student->approval_status  = 'rejected';
             $student->rejection_reason = $reason;
             $student->save();
-            return $student->load('user');
+            $student->load('user');
+
+            // Kirim email notifikasi penolakan ke siswa
+            $email = $student->user->email ?? null;
+            if ($email) {
+                Mail::to($email)->send(new StudentRejectedMail($student, $reason));
+            }
+
+            return $student;
         } catch (\Exception $e) {
             throw new \Exception('Gagal menolak siswa: ' . $e->getMessage());
         }

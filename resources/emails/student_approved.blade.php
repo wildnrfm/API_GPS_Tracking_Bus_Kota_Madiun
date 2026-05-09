@@ -1,63 +1,79 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Akun Disetujui</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #F0F4F8; padding: 32px 16px; }
-        .container { max-width: 520px; margin: 0 auto; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-        .header { background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); padding: 36px 32px; text-align: center; }
-        .header .icon { font-size: 48px; margin-bottom: 12px; }
-        .header h1 { color: #fff; font-size: 22px; font-weight: 700; margin: 0; }
-        .body { padding: 32px; }
-        .greeting { font-size: 16px; color: #1A1A2E; font-weight: 600; margin-bottom: 12px; }
-        .message { font-size: 14px; color: #555; line-height: 1.7; margin-bottom: 24px; }
-        .info-box { background: #F1F8E9; border: 1px solid #C5E1A5; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
-        .info-box .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-        .info-box .row:last-child { margin-bottom: 0; }
-        .info-box .label { color: #666; }
-        .info-box .value { color: #1A1A2E; font-weight: 600; }
-        .cta { text-align: center; margin-bottom: 24px; }
-        .cta-btn { display: inline-block; background: #4CAF50; color: #fff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; }
-        .footer { text-align: center; padding: 20px 32px; background: #F8F9FA; border-top: 1px solid #E9ECEF; }
-        .footer p { font-size: 12px; color: #999; line-height: 1.6; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Akun Disetujui - Mobitra</title>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="icon">🎉</div>
-            <h1>Akun Kamu Telah Disetujui!</h1>
-        </div>
-        <div class="body">
-            <p class="greeting">Halo, {{ $studentName }}!</p>
-            <p class="message">
-                Kabar baik! Admin telah menyetujui pendaftaran akun <strong>{{ $appName }}</strong> kamu.
-                Sekarang kamu sudah bisa login dan menggunakan semua fitur aplikasi.
-            </p>
-            <div class="info-box">
-                <div class="row">
-                    <span class="label">Email Login</span>
-                    <span class="value">{{ $email }}</span>
-                </div>
-                <div class="row">
-                    <span class="label">Sekolah</span>
-                    <span class="value">{{ $sekolah }}</span>
-                </div>
-                <div class="row">
-                    <span class="label">Status</span>
-                    <span class="value" style="color:#2E7D32;">✅ Disetujui</span>
-                </div>
-            </div>
-            <div class="cta">
-                <p style="font-size:13px;color:#555;margin-bottom:12px;">Buka aplikasi {{ $appName }} dan login sekarang.</p>
-            </div>
-        </div>
-        <div class="footer">
-            <p>Email ini dikirim otomatis oleh sistem <strong>{{ $appName }}</strong>.<br>Jangan balas email ini.</p>
-        </div>
-    </div>
+<body style="margin:0;padding:0;background:#F0F2F0;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F2F0;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+
+          <!-- Header hijau -->
+          <tr>
+            <td style="background:#7CBF2F;padding:36px 40px;text-align:center;">
+              <div style="width:64px;height:64px;background:rgba(255,255,255,0.2);border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px;line-height:64px;">✅</div>
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Akun Kamu Disetujui!</h1>
+              <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">{{ $appName }}</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:36px 40px;">
+              <p style="margin:0 0 16px;font-size:15px;color:#1A1A1A;">Halo, <strong>{{ $studentName }}</strong> 👋</p>
+              <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.7;">
+                Selamat! Pendaftaran akun kamu di aplikasi <strong>{{ $appName }}</strong> telah <strong style="color:#7CBF2F;">disetujui</strong> oleh admin.
+                Sekarang kamu sudah bisa menggunakan aplikasi untuk melacak bus sekolah secara realtime.
+              </p>
+
+              <!-- Info box -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F9E8;border-radius:12px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px 24px;">
+                    <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#7CBF2F;letter-spacing:0.5px;text-transform:uppercase;">Detail Akun</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:13px;color:#888;padding:4px 0;width:100px;">Email</td>
+                        <td style="font-size:13px;color:#1A1A1A;font-weight:600;padding:4px 0;">{{ $email }}</td>
+                      </tr>
+                      <tr>
+                        <td style="font-size:13px;color:#888;padding:4px 0;">Sekolah</td>
+                        <td style="font-size:13px;color:#1A1A1A;font-weight:600;padding:4px 0;">{{ $sekolah }}</td>
+                      </tr>
+                      <tr>
+                        <td style="font-size:13px;color:#888;padding:4px 0;">Status</td>
+                        <td style="padding:4px 0;">
+                          <span style="background:#7CBF2F;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">Aktif</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 24px;font-size:14px;color:#555;line-height:1.7;">
+                Buka aplikasi <strong>{{ $appName }}</strong> dan login menggunakan email kamu untuk mulai menggunakannya.
+              </p>
+
+              <p style="margin:0;font-size:13px;color:#888;line-height:1.6;">
+                Jika kamu tidak mendaftar akun ini, abaikan email ini atau hubungi admin sekolah.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#F8F8F8;padding:20px 40px;text-align:center;border-top:1px solid #EEE;">
+              <p style="margin:0;font-size:12px;color:#aaa;">© {{ date('Y') }} {{ $appName }} · Sistem Pelacak Bus Sekolah</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>

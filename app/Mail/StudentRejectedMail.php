@@ -25,7 +25,7 @@ class StudentRejectedMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '❌ Pendaftaran Akun Mobitra Tidak Disetujui',
+            subject: '❌ Pendaftaran Akun Mobitra Kamu Ditolak',
         );
     }
 
