@@ -23,7 +23,10 @@ class StudentController extends BaseController {
 
     //Get semua siswa (dengan info bus & rute)
     public function index(Request $request) {
-        $paginator = $this->studentService->getAllStudents(15);
+        // [FIX] Gunakan perPage sangat besar agar semua siswa ter-return dalam 1 halaman.
+        // Sebelumnya hardcode 15 → frontend hanya dapat 15 siswa pertama saja.
+        $perPage = (int) $request->query('per_page', 1000);
+        $paginator = $this->studentService->getAllStudents($perPage);
         $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
         return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
@@ -125,7 +128,8 @@ class StudentController extends BaseController {
 
     //Get daftar siswa pending approval (dengan info bus & rute jika sudah ada)
     public function pending(Request $request) {
-        $paginator = $this->studentService->getPendingStudents(15);
+        $perPage = (int) $request->query('per_page', 1000);
+        $paginator = $this->studentService->getPendingStudents($perPage);
         $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
         return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
@@ -649,4 +653,4 @@ class StudentController extends BaseController {
             'nama_halte'=> $halte?->nama_halte ?? '',
         ];
     }
-} 
+}

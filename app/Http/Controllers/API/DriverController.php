@@ -12,7 +12,6 @@ use App\Models\GpsTrack;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-//menangani operasi driver (CRUD, bus assignments, history), business logic dihandle di DriverService
 class DriverController extends BaseController {
     protected $driverService;
     protected $busService;
@@ -22,19 +21,17 @@ class DriverController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    //Get daftar semua driver (admin only)
     public function index(Request $request) {
-        $drivers = $this->driverService->getAllDrivers(15);
+        $perPage = (int) $request->query('per_page', 1000);
+        $drivers = $this->driverService->getAllDrivers($perPage);
         return $this->responsePaginated($drivers, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //Get detail driver (admin only)
     public function show(Request $request, $id) {
         $driver = $this->driverService->getDriverById($id);
         return $this->responseSuccess($driver, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //create driver (admin only)
     public function store(Request $request) {
         $data = $request->validate([
             'name' => 'required|string|max:255',
@@ -54,7 +51,6 @@ class DriverController extends BaseController {
         );
     }
 
-    //Update driver (admin only)
     public function update(Request $request, $id) {
         $rules = [];
         $messages = [];
@@ -104,7 +100,6 @@ class DriverController extends BaseController {
         );
     }
 
-    //delete driver (admin only)
     public function destroy(Request $request, $id) {
         $result = $this->driverService->deleteDriver($id);
         if (!$result['success']) {
@@ -113,13 +108,11 @@ class DriverController extends BaseController {
         return $this->responseDeleted(AppMessages::SUCCESS_DRIVER_DELETED);
     }
 
-    //Get bus assignments history dari driver (admin only)
     public function history(Request $request, $id) {
         $history = $this->driverService->getDriverBusHistory($id);
         return $this->responsePaginated($history, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    // get profile driver yang sedang login
     public function meDriver(Request $request) {
         $user = $request->user();
         $driver = $user->driver()->with('user')->first();
@@ -141,7 +134,6 @@ class DriverController extends BaseController {
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //get bus assignments aktif dari driver yang login
     public function myBuses(Request $request) {
         $driver = $request->user()->driver;
         if (!$driver) {
@@ -152,7 +144,6 @@ class DriverController extends BaseController {
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //Toggle GPS status dari bus yang ditugaskan
     public function toggleGpsStatus(Request $request) {
         $driver = $request->user()->driver;
         if (!$driver) {
@@ -161,8 +152,7 @@ class DriverController extends BaseController {
         $data = $request->validate([
             'gps_status' => 'required|in:on,off',
         ]);
-        // Cari assignment aktif via BusDriver model — scopeActive() sudah handle
-        // kondisi NULL dan tanggal_selesai >= hari ini dengan grouping yang benar
+        
         $busDriver = BusDriver::where('driver_id', $driver->id)
             ->active()
             ->latest('created_at')
@@ -175,10 +165,7 @@ class DriverController extends BaseController {
             return $this->responseForbidden('Bus tidak aktif');
         }
         if ($data['gps_status'] === 'on') {
-            // CATATAN: Jangan simpan koordinat 0,0 ke gps_tracks karena akan difilter
-            // oleh query dashboard (WHERE latitude != 0 AND longitude != 0).
-            // Cukup update last_gps_update di bawah agar stale-reset tidak langsung terpicu.
-            // Koordinat nyata akan masuk saat driver mengirim POST /driver/gps pertama kali.
+            
         }
         $busDriver->update([
             'gps_status'      => $data['gps_status'],
@@ -190,7 +177,6 @@ class DriverController extends BaseController {
         ], AppMessages::SUCCESS_GPS_STATUS_UPDATED);
     }
 
-    //Get daily report untuk bus
     public function dailyReport(Request $request, $busId) {
         $driver = $request->user()->driver;
         if (!$driver) {
@@ -240,14 +226,12 @@ class DriverController extends BaseController {
         return $this->responseSuccess($data, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    // Daftar siswa yang terdaftar di bus milik driver yang login
     public function myBusStudents(Request $request, $busId) {
         $driver = $request->user()->driver;
         if (!$driver) {
             return $this->responseNotFound(AppMessages::ERROR_DRIVER_NOT_FOUND);
         }
 
-        // Pastikan bus ini memang milik driver yang login (assignment aktif)
         $assignment = $driver->buses()->where('bus_id', $busId)->first();
         if (!$assignment) {
             return $this->responseForbidden(AppMessages::ERROR_BUS_NOT_ASSIGNED);
@@ -256,4 +240,4 @@ class DriverController extends BaseController {
         $students = $this->busService->getBusStudents($busId);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
-}
+} 
