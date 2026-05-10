@@ -14,13 +14,17 @@
           <!-- Header hijau -->
           <tr>
             <td style="background:#1B5E37;padding:36px 40px;text-align:center;">
-              <!-- Ikon centang SVG -->
-              <div style="display:inline-block;width:72px;height:72px;background:rgba(255,255,255,0.15);border-radius:50%;margin:0 auto 16px;line-height:72px;text-align:center;">
-                <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
-                  <circle cx="18" cy="18" r="17" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
-                  <path d="M9 18.5L14.5 24L27 12" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
+
+              <!-- Ikon centang pakai tabel HTML — kompatibel semua email client -->
+              <table cellpadding="0" cellspacing="0" style="margin:0 auto 16px;">
+                <tr>
+                  <td width="72" height="72"
+                      style="width:72px;height:72px;background:rgba(255,255,255,0.15);border-radius:50%;text-align:center;vertical-align:middle;font-size:36px;line-height:72px;color:#ffffff;font-weight:700;">
+                    &#10003;
+                  </td>
+                </tr>
+              </table>
+
               <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Akun Kamu Disetujui!</h1>
               <p style="margin:8px 0 0;color:rgba(255,255,255,0.75);font-size:14px;">Mobitra · Sistem Pelacak Bus Sekolah</p>
             </td>
