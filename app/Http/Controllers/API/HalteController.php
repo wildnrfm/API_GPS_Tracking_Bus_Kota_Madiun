@@ -12,10 +12,11 @@ class HalteController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    //get daftar semua halte (tanpa pagination agar FE bisa load semua sekaligus)
+    //get daftar semua halte (with pagination support)
     public function index(Request $request) {
-        $haltes = Halte::orderBy('nama_halte')->get();
-        return $this->responseSuccess($haltes, AppMessages::SUCCESS_DATA_RETRIEVED);
+        $perPage = $request->input('per_page', 15);
+        $haltes = Halte::orderBy('nama_halte')->paginate($perPage);
+        return $this->responsePaginated($haltes, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //get detail halte 

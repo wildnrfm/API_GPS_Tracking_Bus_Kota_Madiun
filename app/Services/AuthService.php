@@ -43,7 +43,7 @@ class AuthService {
             }
         }
         $user->api_token             = Str::random(60);
-        $user->token_expires_at      = now()->addHours(24);
+        $user->token_expires_at      = now()->addDays(2);
         $user->last_login_at         = now();
         $user->last_login_ip         = $ipAddress;
         $user->last_login_user_agent = $userAgent;

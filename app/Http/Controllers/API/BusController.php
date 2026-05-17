@@ -15,10 +15,28 @@ class BusController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    // GET daftar semua bus dengan rute
+    // GET daftar semua bus dengan rute (support pagination)
     public function index(Request $request) {
-        $buses = $this->busService->getAllBuses();
-        return $this->responseSuccess($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
+        $perPage = $request->input('per_page', 15);
+        $page = $request->input('page', 1);
+        
+        // Get all buses (this calls the full mapping logic)
+        $allBuses = $this->busService->getAllBuses();
+        
+        // Manually paginate the collection
+        $total = count($allBuses);
+        $items = collect($allBuses)->slice(($page - 1) * $perPage, $perPage)->values();
+        
+        // Create a LengthAwarePaginator instance
+        $buses = new \Illuminate\Pagination\LengthAwarePaginator(
+            $items,
+            $total,
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+        
+        return $this->responsePaginated($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     //GET detail bus dan rute
