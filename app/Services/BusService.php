@@ -53,8 +53,6 @@ class BusService {
                 'id'              => $bus->id,
                 'kode_bus'        => $bus->kode_bus,
                 'plat_nomor'      => $bus->plat_nomor,
-                'nama'            => $bus->nama,
-                'kapasitas'       => $bus->kapasitas,
                 'status'          => $bus->status,
                 'gps_status'      => $gpsStatus,
                 'last_gps_update' => $assignment?->last_gps_update,
