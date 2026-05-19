@@ -274,19 +274,16 @@ class RouteController extends BaseController
 
     public function getByBus(Request $request, $busId)
     {
-        $routes = Route::with([
+        $route = Route::with([
             'bus:id,kode_bus,plat_nomor',
             'routeHaltes.halte',
             'polylines',
-        ])->where('bus_id', $busId)->get();
+        ])->where('bus_id', $busId)->first();
 
-        if ($routes->isEmpty()) {
+        if (!$route) {
             return $this->responseNotFound('Bus ini belum memiliki rute');
         }
 
-        return $this->responseSuccess(
-            $routes->map(fn($r) => $this->formatRoute($r))->values(),
-            AppMessages::SUCCESS_RETRIEVED
-        );
+        return $this->responseSuccess($this->formatRoute($route), AppMessages::SUCCESS_RETRIEVED);
     }
 }
