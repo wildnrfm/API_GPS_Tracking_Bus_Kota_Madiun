@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('device_sessions', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id');
-            $table->string('device_id', 60)->unique();
+            $table->string('device_id', 64)->unique();
             $table->text('api_token');
             $table->string('ip_address', 50)->nullable();
             $table->text('user_agent')->nullable();
