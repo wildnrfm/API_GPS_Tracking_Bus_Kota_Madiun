@@ -10,6 +10,8 @@ class Bus extends Model {
     protected $fillable = [
         'kode_bus',
         'plat_nomor',
+        'nama',
+        'kapasitas',
         'status',
     ];
 
