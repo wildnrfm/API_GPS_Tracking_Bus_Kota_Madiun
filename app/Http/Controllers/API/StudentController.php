@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Services\StudentService;
 use App\Constants\AppMessages;
+use App\Models\Student;
 use App\Models\GpsTrack;
 use App\Models\BusDriver;
 use App\Models\Attendance;
@@ -69,7 +70,8 @@ class StudentController extends BaseController {
             $messages['name.max'] = AppMessages::ERROR_NAME_TOO_LONG;
         }
         if ($request->has('email')) {
-            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($id)];
+            $student = Student::findOrFail($id);
+            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($student->user_id)];
             $messages['email.required'] = AppMessages::ERROR_EMAIL_REQUIRED;
             $messages['email.email'] = AppMessages::ERROR_EMAIL_INVALID;
             $messages['email.unique'] = AppMessages::ERROR_EMAIL_TAKEN;

@@ -59,7 +59,7 @@ class StudentService {
 
     public function updateStudent($id, $data) {
         try {
-            $student = Student::where('user_id', $id)->firstOrFail();
+            $student = Student::findOrFail($id);
             $this->updateUserAndProfile($student->user, $student, $data);
             return [
                 'success' => true,
@@ -73,7 +73,7 @@ class StudentService {
 
     public function deleteStudent($id) {
         try {
-            $student = Student::where('user_id', $id)->firstOrFail();
+            $student = Student::findOrFail($id);
             $userId  = $student->user_id;
             $student->delete();
             if ($userId) {
