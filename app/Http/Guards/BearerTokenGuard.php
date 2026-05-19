@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\DeviceSession;
 
 class BearerTokenGuard implements Guard
 {
@@ -55,8 +56,14 @@ class BearerTokenGuard implements Guard
         $token = $this->getTokenFromRequest();
 
         if (!empty($token)) {
-            // Use direct query to find user by api_token
-            $this->user = User::where('api_token', $token)->first();
+            // Check if token exists in DeviceSession (not expired)
+            $deviceSession = DeviceSession::where('api_token', $token)
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if ($deviceSession) {
+                $this->user = User::find($deviceSession->user_id);
+            }
         }
 
         return $this->user;
@@ -93,6 +100,12 @@ class BearerTokenGuard implements Guard
             return false;
         }
 
-        return !is_null(User::where('api_token', $credentials[$this->inputKey])->first());
+        // Check if token exists in active DeviceSession
+        $deviceSession = DeviceSession::where('api_token', $credentials[$this->inputKey])
+            ->where('expires_at', '>', now())
+            ->first();
+
+        return !is_null($deviceSession);
     }
 }
+

@@ -75,7 +75,9 @@ class AuthController extends BaseController {
     //Logout dan remove token
     public function logout(Request $request) {
         $user = $request->user();
-        $this->authService->logoutUser($user);
+        $ipAddress = $request->ip();
+        $userAgent = $request->userAgent();
+        $this->authService->logoutUser($user, $ipAddress, $userAgent);
         return $this->responseSuccess(null, 'Logout berhasil');
     }
 
