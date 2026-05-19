@@ -46,14 +46,17 @@ class AuthService {
         // Generate device_id from userAgent and IP hash
         $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
         
+        // Determine max devices based on role
+        $maxDevices = $user->role === 'admin' ? 2 : 1;
+        
         // Get existing active device sessions (ordered by creation date)
         $existingDevices = DeviceSession::where('user_id', $user->id)
             ->where('expires_at', '>', now())
             ->orderBy('created_at', 'asc')
             ->get();
         
-        // If user has 2 or more active devices, delete the oldest one
-        if ($existingDevices->count() >= 2) {
+        // If user has reached max devices, delete the oldest one
+        if ($existingDevices->count() >= $maxDevices) {
             $oldestDevice = $existingDevices->first();
             $oldestDevice->delete();
         }
