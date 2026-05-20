@@ -48,30 +48,45 @@ class AuthService {
         
         // Determine max devices based on role
         $maxDevices = $user->role === 'admin' ? 2 : 1;
-        
-        // Get existing active device sessions (ordered by creation date)
-        $existingDevices = DeviceSession::where('user_id', $user->id)
-            ->where('expires_at', '>', now())
-            ->orderBy('created_at', 'asc')
-            ->get();
-        
-        // If user has reached max devices, delete the oldest one
-        if ($existingDevices->count() >= $maxDevices) {
-            $oldestDevice = $existingDevices->first();
-            $oldestDevice->delete();
-        }
-        
-        // Create new device session
+
         $apiToken = Str::random(60);
-        DeviceSession::create([
-            'user_id'         => $user->id,
-            'device_id'       => $deviceId,
-            'api_token'       => $apiToken,
-            'ip_address'      => $ipAddress,
-            'user_agent'      => $userAgent,
-            'expires_at'      => now()->addDays(2),
-            'last_activity_at' => now(),
-        ]);
+
+        // Check if this exact device already has a session (re-login from same device)
+        $existingSession = DeviceSession::where('user_id', $user->id)
+            ->where('device_id', $deviceId)
+            ->first();
+
+        if ($existingSession) {
+            // Same device logging in again — just refresh the token & expiry
+            $existingSession->update([
+                'api_token'        => $apiToken,
+                'ip_address'       => $ipAddress,
+                'user_agent'       => $userAgent,
+                'expires_at'       => now()->addDays(2),
+                'last_activity_at' => now(),
+            ]);
+        } else {
+            // New device — evict oldest session if at max capacity
+            $activeSessions = DeviceSession::where('user_id', $user->id)
+                ->where('expires_at', '>', now())
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($activeSessions->count() >= $maxDevices) {
+                $activeSessions->first()->delete();
+            }
+
+            // Create session for the new device
+            DeviceSession::create([
+                'user_id'          => $user->id,
+                'device_id'        => $deviceId,
+                'api_token'        => $apiToken,
+                'ip_address'       => $ipAddress,
+                'user_agent'       => $userAgent,
+                'expires_at'       => now()->addDays(2),
+                'last_activity_at' => now(),
+            ]);
+        }
         
         // Update user's last login info
         $user->last_login_at         = now();

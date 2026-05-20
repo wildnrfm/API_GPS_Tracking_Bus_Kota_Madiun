@@ -52,6 +52,7 @@ class BusController extends BaseController {
             'plat_nomor' => 'required|string|max:15|unique:buses',
             'status' => 'required|in:aktif,nonaktif,maintenance',
             'nama_rute' => 'sometimes|string|max:150',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ], [
             'kode_bus.required' => 'Kode bus wajib diisi',
             'kode_bus.unique' => 'Kode bus sudah terdaftar',
@@ -60,7 +61,22 @@ class BusController extends BaseController {
             'status.required' => 'Status wajib diisi',
             'status.in' => 'Status harus aktif, nonaktif, atau maintenance',
             'nama_rute.max' => 'Nama rute maksimal 150 karakter',
+            'photo.image' => 'File harus berupa gambar',
+            'photo.mimes' => 'Format gambar harus jpeg, png, jpg, atau gif',
+            'photo.max' => 'Ukuran gambar maksimal 2MB',
         ]);
+
+        // Handle photo upload — simpan langsung ke public/images/buses/
+        // (tidak pakai Storage disk 'public' karena symlink NTFS gagal di server ini)
+        if ($request->hasFile('photo')) {
+            $photo    = $request->file('photo');
+            $filename = uniqid('bus_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/buses');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/buses/' . $filename;
+        }
+
         $result = $this->busService->createBus($data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -76,12 +92,32 @@ class BusController extends BaseController {
             'plat_nomor' => 'sometimes|string|max:15|unique:buses,plat_nomor,' . $id,
             'status' => 'sometimes|in:aktif,nonaktif,maintenance',
             'nama_rute' => 'sometimes|nullable|string|max:150',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ], [
             'kode_bus.unique' => 'Kode bus sudah terdaftar',
             'plat_nomor.unique' => 'Nomor plat sudah terdaftar',
             'status.in' => 'Status harus aktif, nonaktif, atau maintenance',
             'nama_rute.max' => 'Nama rute maksimal 150 karakter',
+            'photo.image' => 'File harus berupa gambar',
+            'photo.mimes' => 'Format gambar harus jpeg, png, jpg, atau gif',
+            'photo.max' => 'Ukuran gambar maksimal 2MB',
         ]);
+
+        // Handle photo upload — simpan langsung ke public/images/buses/
+        if ($request->hasFile('photo')) {
+            // Hapus foto lama jika ada
+            $bus = \App\Models\Bus::find($id);
+            if ($bus?->photo && file_exists(public_path($bus->photo))) {
+                @unlink(public_path($bus->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('bus_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/buses');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/buses/' . $filename;
+        }
+
         $result = $this->busService->updateBus($id, $data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -96,6 +132,19 @@ class BusController extends BaseController {
             return $this->responseError($result['error'], null, 500);
         }
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
+    }
+
+    // update bus photo (accept photo path string, not file)
+    public function updatePhoto(Request $request, $id) {
+        $data = $request->validate([
+            'photo' => 'required|string', // Accept path string instead of file
+        ]);
+
+        $result = $this->busService->updateBus($id, $data);
+        if (!$result['success']) {
+            return $this->responseError($result['error'], null, 500);
+        }
+        return $this->responseUpdated($result['bus'], AppMessages::SUCCESS_UPDATED);
     }
 
     // get daftar siswa yang terdaftar di bus

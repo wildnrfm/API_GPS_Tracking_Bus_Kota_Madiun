@@ -11,7 +11,17 @@ class Bus extends Model {
         'kode_bus',
         'plat_nomor',
         'status',
+        'photo',
     ];
+
+    protected $appends = ['photo_url'];
+
+    public function getPhotoUrlAttribute(): ?string {
+        if (!$this->photo) return null;
+        // Simpan foto langsung di public/images/buses/ (tanpa butuh symlink storage)
+        // URL: http://127.0.0.1:8000/images/buses/xxx.jpg
+        return asset($this->photo);
+    }
 
     public function drivers() {
         return $this->belongsToMany(Driver::class, 'bus_driver')->withPivot('tanggal_mulai', 'tanggal_selesai')->withTimestamps();

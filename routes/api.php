@@ -94,6 +94,10 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('buses/{id}', [BusController::class, 'show']);
     Route::post('buses', [BusController::class, 'store']);
     Route::put('buses/{id}', [BusController::class, 'update']);
+    // POST route untuk method spoofing (_method=PUT): dipakai saat upload foto via FormData
+    // karena PHP tidak bisa baca $_FILES dari PUT request (hanya POST yang didukung)
+    Route::post('buses/{id}', [BusController::class, 'update']);
+    Route::put('buses/{id}/photo', [BusController::class, 'updatePhoto']);
     Route::delete('buses/{id}', [BusController::class, 'destroy']);
     Route::get('buses/{id}/students', [BusController::class, 'students']);
     Route::post('buses/{id}/students', [StudentBusController::class, 'assignStudentToBus']);
