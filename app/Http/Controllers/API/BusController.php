@@ -6,8 +6,9 @@ use App\Services\BusService;
 use App\Constants\AppMessages;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Storage;
+use App\Models\Bus;
 
-// CRUD operasi bus ( assignment driver, students), Business logic dihandle di BusService
 class BusController extends BaseController {
     protected $busService;
     public function __construct(BusService $busService) {
@@ -15,19 +16,16 @@ class BusController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    // GET daftar semua bus dengan rute
     public function index(Request $request) {
         $buses = $this->busService->getAllBuses();
         return $this->responseSuccess($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //GET detail bus dan rute
     public function show(Request $request, $id) {
         $bus = $this->busService->getBusById($id);
         return $this->responseSuccess($bus, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //create bus
     public function store(Request $request) {
         $data = $request->validate([
             'kode_bus' => 'required|string|max:20|unique:buses',
@@ -50,7 +48,6 @@ class BusController extends BaseController {
         return $this->responseCreated($result['bus'], AppMessages::SUCCESS_CREATED);
     }
 
-    //update data bus
     public function update(Request $request, $id) {
         $this->busService->getBusById($id);
         $data = $request->validate([
@@ -71,7 +68,6 @@ class BusController extends BaseController {
         return $this->responseUpdated($result['bus'], AppMessages::SUCCESS_UPDATED);
     }
 
-    // delete bus
     public function destroy(Request $request, $id) {
         $result = $this->busService->deleteBus($id);
         if (!$result['success']) {
@@ -80,19 +76,41 @@ class BusController extends BaseController {
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }
 
-    // get daftar siswa yang terdaftar di bus
+    public function uploadPhoto(Request $request, $id) {
+        $request->validate([
+            'photo' => 'required|image|mimes:jpeg,png,jpg|max:2048',
+        ], [
+            'photo.required' => 'Foto wajib diisi',
+            'photo.image' => 'File harus berupa gambar',
+            'photo.mimes' => 'Format foto harus jpeg, png, atau jpg',
+            'photo.max' => 'Ukuran foto maksimal 2MB',
+        ]);
+
+        $bus = Bus::findOrFail($id);
+
+        if ($bus->photo && Storage::disk('public')->exists($bus->photo)) {
+            Storage::disk('public')->delete($bus->photo);
+        }
+
+        $path = $request->file('photo')->store('buses/photos', 'public');
+        $bus->photo = $path;
+        $bus->save();
+
+        return $this->responseSuccess([
+            'photo_url' => asset('storage/' . $path),
+        ], 'Foto bus berhasil diupdate');
+    }
+
     public function students(Request $request, $id) {
         $students = $this->busService->getBusStudents($id);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //get daftar driver yang pernah di bus ini
     public function drivers(Request $request, $id) {
         $drivers = $this->busService->getBusDrivers($id);
         return $this->responsePaginated($drivers, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //get driver yang sedang aktif di bus ini
     public function activeDriver(Request $request, $id) {
         $activeDriver = $this->busService->getActiveDriver($id);
         if (!$activeDriver) {
@@ -101,7 +119,6 @@ class BusController extends BaseController {
         return $this->responseSuccess($activeDriver, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    //post driver ke bus
     public function assignDriver(Request $request, $id) {
         $data = $request->validate([
             'driver_id' => ['required', Rule::exists('drivers', 'id')],

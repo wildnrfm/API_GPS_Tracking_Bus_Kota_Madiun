@@ -11,6 +11,7 @@ class Bus extends Model {
         'kode_bus',
         'plat_nomor',
         'status',
+        'photo',
     ];
 
     public function drivers() {

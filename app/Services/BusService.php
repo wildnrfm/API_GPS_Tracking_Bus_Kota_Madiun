@@ -54,6 +54,7 @@ class BusService {
                 'kode_bus'        => $bus->kode_bus,
                 'plat_nomor'      => $bus->plat_nomor,
                 'status'          => $bus->status,
+                'photo_url'       => $bus->photo ? asset('storage/' . $bus->photo) : null,
                 'gps_status'      => $gpsStatus,
                 'last_gps_update' => $assignment?->last_gps_update,
                 // current_position hanya dikirim jika GPS sedang aktif
