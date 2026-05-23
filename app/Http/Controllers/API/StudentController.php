@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Services\StudentService;
 use App\Constants\AppMessages;
+use App\Models\Student;
 use App\Models\GpsTrack;
 use App\Models\BusDriver;
 use App\Models\Attendance;
@@ -69,7 +70,8 @@ class StudentController extends BaseController {
             $messages['name.max'] = AppMessages::ERROR_NAME_TOO_LONG;
         }
         if ($request->has('email')) {
-            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($id)];
+            $student = Student::findOrFail($id);
+            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($student->user_id)];
             $messages['email.required'] = AppMessages::ERROR_EMAIL_REQUIRED;
             $messages['email.email'] = AppMessages::ERROR_EMAIL_INVALID;
             $messages['email.unique'] = AppMessages::ERROR_EMAIL_TAKEN;
@@ -167,24 +169,24 @@ class StudentController extends BaseController {
 
     // Suspend (nonaktifkan) siswa
     public function suspend(Request $request, $id) {
-        $student = \App\Models\Student::where('user_id', $id)->firstOrFail();
+        $student = \App\Models\Student::findOrFail($id);
         $user = $student->user;
         $user->is_suspended = true;
         $user->save();
         return $this->responseSuccess(
-            ['user_id' => $id, 'is_suspended' => true],
+            $student->load('user'),
             'Siswa berhasil dinonaktifkan'
         );
     }
 
     // Unsuspend (aktifkan kembali) siswa
     public function unsuspend(Request $request, $id) {
-        $student = \App\Models\Student::where('user_id', $id)->firstOrFail();
+        $student = \App\Models\Student::findOrFail($id);
         $user = $student->user;
         $user->is_suspended = false;
         $user->save();
         return $this->responseSuccess(
-            ['user_id' => $id, 'is_suspended' => false],
+            $student->load('user'),
             'Siswa berhasil diaktifkan kembali'
         );
     }
@@ -629,6 +631,7 @@ class StudentController extends BaseController {
             'no_hp'           => $student->no_hp,
             'approval_status' => $student->approval_status,
             'rejection_reason'=> $student->rejection_reason ?? null,
+            'is_suspended'    => (bool) $student->user?->is_suspended,
             'user'            => $student->user ? [
                 'id'    => $student->user->id,
                 'name'  => $student->user->name,

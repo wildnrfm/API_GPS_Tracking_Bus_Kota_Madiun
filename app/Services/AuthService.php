@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Student;
 use App\Models\User;
+use App\Models\DeviceSession;
 use App\Jobs\LogActivityAsync;
 use App\Traits\CreatesUser;
 use Illuminate\Support\Facades\Hash;
@@ -42,8 +43,52 @@ class AuthService {
                 return ['error' => 'Akun Anda masih menunggu persetujuan admin'];
             }
         }
-        $user->api_token             = Str::random(60);
-        $user->token_expires_at      = now()->addHours(24);
+        // Generate device_id from userAgent and IP hash
+        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        
+        // Determine max devices based on role
+        $maxDevices = $user->role === 'admin' ? 2 : 1;
+
+        $apiToken = Str::random(60);
+
+        // Check if this exact device already has a session (re-login from same device)
+        $existingSession = DeviceSession::where('user_id', $user->id)
+            ->where('device_id', $deviceId)
+            ->first();
+
+        if ($existingSession) {
+            // Same device logging in again — just refresh the token & expiry
+            $existingSession->update([
+                'api_token'        => $apiToken,
+                'ip_address'       => $ipAddress,
+                'user_agent'       => $userAgent,
+                'expires_at'       => now()->addDays(2),
+                'last_activity_at' => now(),
+            ]);
+        } else {
+            // New device — evict oldest session if at max capacity
+            $activeSessions = DeviceSession::where('user_id', $user->id)
+                ->where('expires_at', '>', now())
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($activeSessions->count() >= $maxDevices) {
+                $activeSessions->first()->delete();
+            }
+
+            // Create session for the new device
+            DeviceSession::create([
+                'user_id'          => $user->id,
+                'device_id'        => $deviceId,
+                'api_token'        => $apiToken,
+                'ip_address'       => $ipAddress,
+                'user_agent'       => $userAgent,
+                'expires_at'       => now()->addDays(2),
+                'last_activity_at' => now(),
+            ]);
+        }
+        
+        // Update user's last login info
         $user->last_login_at         = now();
         $user->last_login_ip         = $ipAddress;
         $user->last_login_user_agent = $userAgent;
@@ -142,9 +187,9 @@ class AuthService {
         }
 
         return [
-            'token'            => $user->api_token,
+            'token'            => $apiToken,
             'user'             => $userData,
-            'token_expires_at' => $user->token_expires_at,
+            'token_expires_at' => now()->addDays(2),
             'bus'              => $busData, // null jika bukan driver / belum dapat bus
         ];
     }
@@ -178,17 +223,25 @@ class AuthService {
         }
     }
 
-    public function logoutUser($user) {
+    public function logoutUser($user, $ipAddress, $userAgent) {
         if (!$user) {
             return false;
         }
+        
+        // Generate device_id from userAgent and IP hash
+        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        
+        // Delete specific device session
+        DeviceSession::where('user_id', $user->id)
+            ->where('device_id', $deviceId)
+            ->delete();
+        
         LogActivityAsync::dispatch('logout', $user->id, [
             'description' => 'User logout',
             'status'      => 'success',
         ]);
-        $user->api_token        = null;
-        $user->token_expires_at = null;
-        return $user->save();
+        
+        return true;
     }
 
     public function updateUserPassword($user, $currentPassword, $newPassword) {

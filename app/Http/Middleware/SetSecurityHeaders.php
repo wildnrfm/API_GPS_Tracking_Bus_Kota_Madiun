@@ -10,9 +10,11 @@ class SetSecurityHeaders {
         $response = $next($request);
         $allowedOrigins = [
             'http://localhost:3000',
+            'http://localhost:8001',
             'http://localhost:8080',
             'http://localhost:5173',
             'http://127.0.0.1:3000',
+            'http://127.0.0.1:8001',
             env('FRONTEND_URL', 'http://localhost:3000'),
         ];
         $origin = $request->headers->get('origin');

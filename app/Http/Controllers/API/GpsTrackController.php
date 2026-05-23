@@ -122,20 +122,19 @@ class GpsTrackController extends BaseController {
     //Dashboard admin - lihat semua bus dengan status GPS terbaru
     public function dashboard(Request $request) {
         $today = now()->toDateString();
+        $threeHoursAgo = now()->subHours(3);
         $now   = now();
 
         // Load semua bus sekaligus (hindari N+1)
         $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
         $busIds = $buses->pluck('id');
 
-        // Load GPS terbaru per bus — pakai MAX(recorded_at) bukan MAX(id)
-        // karena id tidak menjamin urutan waktu (device_timestamp bisa berbeda)
-        // PENTING: Filter whereDate('recorded_at', $today) agar tidak pakai
-        // koordinat dari sesi kemarin/minggu lalu saat driver baru toggle ON
+        // Load GPS terbaru per bus — dari 3 jam terakhir (bukan hanya hari ini)
+        // karena mungkin data shift kemarin masih berlaku hari ini
         $latestGpsMap = GpsTrack::select('bus_id',
                 DB::raw('MAX(recorded_at) as max_recorded'))
             ->whereIn('bus_id', $busIds)
-            ->whereDate('recorded_at', $today)
+            ->where('recorded_at', '>=', $threeHoursAgo)
             ->where('latitude', '!=', 0)
             ->where('longitude', '!=', 0)
             ->groupBy('bus_id')
@@ -147,7 +146,6 @@ class GpsTrackController extends BaseController {
         foreach ($latestGpsMap as $busId => $maxRecorded) {
             $record = GpsTrack::where('bus_id', $busId)
                 ->where('recorded_at', $maxRecorded)
-                ->whereDate('recorded_at', $today)
                 ->where('latitude', '!=', 0)
                 ->where('longitude', '!=', 0)
                 ->first(['id', 'bus_id', 'latitude', 'longitude', 'speed', 'accuracy', 'heading', 'recorded_at']);
@@ -170,16 +168,17 @@ class GpsTrackController extends BaseController {
             ->keyBy('bus_id');
 
         // Auto-reset GPS yang stale:
-        // - gps_status = 'on' tapi last_gps_update NULL (sesi lama yang tidak pernah kirim koordinat)
-        // - gps_status = 'on' tapi last_gps_update sudah > 10 menit yang lalu
-        // CATATAN: Threshold dinaikkan dari 5 → 10 menit karena heartbeat Flutter setiap 2 menit
-        // + delay jaringan bisa membuat GPS ter-reset secara salah saat driver masih aktif
-        $staleIds = $assignments->filter(function($a) use ($now) {
+        // Jika gps_status ON tapi tidak ada GPS record (atau record >10 menit lalu)
+        // Gunakan gpsRecords (dari 3 jam terakhir) sebagai sumber kebenaran
+        $staleIds = $assignments->filter(function($a) use ($now, $gpsRecords) {
             if ($a->gps_status !== 'on') return false;
-            // NULL last_gps_update = toggle ON dari sesi lama, langsung reset
-            if (!$a->last_gps_update) return true;
-            // Ada last_gps_update tapi sudah > 10 menit
-            return $now->diffInMinutes(Carbon::parse($a->last_gps_update)) > 10;
+            
+            $record = $gpsRecords->get($a->bus_id);
+            // Tidak ada GPS record terbaru = stale
+            if (!$record) return true;
+            
+            // Ada record tapi >10 menit = stale
+            return $now->diffInMinutes($record->recorded_at) > 10;
         })->pluck('id');
 
         if ($staleIds->isNotEmpty()) {
