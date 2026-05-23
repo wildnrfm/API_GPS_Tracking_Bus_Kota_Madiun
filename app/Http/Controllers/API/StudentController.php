@@ -633,10 +633,11 @@ class StudentController extends BaseController {
             'rejection_reason'=> $student->rejection_reason ?? null,
             'is_suspended'    => (bool) $student->user?->is_suspended,
             'user'            => $student->user ? [
-                'id'    => $student->user->id,
-                'name'  => $student->user->name,
-                'email' => $student->user->email,
-                'role'  => $student->user->role,
+                'id'           => $student->user->id,
+                'name'         => $student->user->name,
+                'email'        => $student->user->email,
+                'role'         => $student->user->role,
+                'is_suspended' => (bool) $student->user->is_suspended,
             ] : null,
             // Info bus & rute untuk QR card
             'bus'   => $bus ? [
