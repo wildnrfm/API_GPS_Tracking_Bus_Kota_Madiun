@@ -62,54 +62,60 @@ class StudentController extends BaseController {
 
     // Update siswa 
     public function update(Request $request, $id) {
-        $rules = [];
+        $rules    = [];
         $messages = [];
+
+        // Gunakan filled() agar field yang dikirim kosong pun tetap terdeteksi
+        // has() hanya cek keberadaan key, filled() cek ada & tidak kosong/null
         if ($request->has('name')) {
             $rules['name'] = 'required|string|max:255';
             $messages['name.required'] = AppMessages::ERROR_NAME_REQUIRED;
-            $messages['name.max'] = AppMessages::ERROR_NAME_TOO_LONG;
+            $messages['name.max']      = AppMessages::ERROR_NAME_TOO_LONG;
         }
         if ($request->has('email')) {
             $student = Student::findOrFail($id);
             $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($student->user_id)];
             $messages['email.required'] = AppMessages::ERROR_EMAIL_REQUIRED;
-            $messages['email.email'] = AppMessages::ERROR_EMAIL_INVALID;
-            $messages['email.unique'] = AppMessages::ERROR_EMAIL_TAKEN;
+            $messages['email.email']    = AppMessages::ERROR_EMAIL_INVALID;
+            $messages['email.unique']   = AppMessages::ERROR_EMAIL_TAKEN;
         }
         if ($request->has('password')) {
-            $rules['password'] = 'required|string|min:8|confirmed';
+            $rules['password']              = 'required|string|min:8|confirmed';
             $rules['password_confirmation'] = 'required|string';
-            $messages['password.required'] = AppMessages::ERROR_PASSWORD_REQUIRED;
-            $messages['password.min'] = AppMessages::ERROR_PASSWORD_WEAK;
-            $messages['password.confirmed'] = AppMessages::ERROR_PASSWORD_MISMATCH;
+            $messages['password.required']              = AppMessages::ERROR_PASSWORD_REQUIRED;
+            $messages['password.min']                   = AppMessages::ERROR_PASSWORD_WEAK;
+            $messages['password.confirmed']             = AppMessages::ERROR_PASSWORD_MISMATCH;
             $messages['password_confirmation.required'] = 'Password confirmation harus diisi';
         }
         if ($request->has('nis')) {
             $rules['nis'] = ['required', 'string', Rule::unique('students', 'nis')->ignore($id)];
             $messages['nis.required'] = 'NIS harus diisi';
-            $messages['nis.unique'] = 'NIS sudah terdaftar';
+            $messages['nis.unique']   = 'NIS sudah terdaftar';
         }
         if ($request->has('sekolah')) {
-            $rules['sekolah'] = 'sometimes|string|max:255';
+            $rules['sekolah'] = 'nullable|string|max:255';
             $messages['sekolah.max'] = 'Nama sekolah terlalu panjang';
         }
         if ($request->has('kelas')) {
-            $rules['kelas'] = 'sometimes|string|max:100';
+            $rules['kelas'] = 'nullable|string|max:100';
             $messages['kelas.max'] = 'Kelas terlalu panjang';
         }
         if ($request->has('alamat')) {
-            $rules['alamat'] = 'sometimes|string|max:500';
+            $rules['alamat'] = 'nullable|string|max:500';
             $messages['alamat.max'] = 'Alamat terlalu panjang';
         }
         if ($request->has('no_hp')) {
-            $rules['no_hp'] = 'sometimes|string|max:15';
+            $rules['no_hp'] = 'nullable|string|max:15';
             $messages['no_hp.max'] = 'Nomor HP terlalu panjang';
         }
+
         if (empty($rules)) {
             return $this->responseError('Tidak ada data yang dapat diupdate', null, 422);
         }
-        $data = $request->validate($rules, $messages);
+
+        $data   = $request->validate($rules, $messages);
         $result = $this->studentService->updateStudent($id, $data);
+
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
         }

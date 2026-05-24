@@ -18,8 +18,11 @@ class Bus extends Model {
 
     public function getPhotoUrlAttribute(): ?string {
         if (!$this->photo) return null;
-        // Simpan foto langsung di public/images/buses/ (tanpa butuh symlink storage)
-        // URL: http://127.0.0.1:8000/images/buses/xxx.jpg
+        // Foto disimpan di public/images/buses/ (tanpa symlink storage)
+        // URL: http://host/images/buses/xxx.jpg
+        if (str_starts_with($this->photo, 'http')) {
+            return $this->photo;
+        }
         return asset($this->photo);
     }
 

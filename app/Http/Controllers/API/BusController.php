@@ -6,7 +6,6 @@ use App\Services\BusService;
 use App\Constants\AppMessages;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\Storage;
 use App\Models\Bus;
 
 class BusController extends BaseController {
@@ -16,22 +15,16 @@ class BusController extends BaseController {
         $this->middleware('auth:api');
     }
 
-<<<<<<< HEAD
-=======
     // GET daftar semua bus dengan rute (support pagination)
->>>>>>> kelompok/main
     public function index(Request $request) {
         $perPage = $request->input('per_page', 15);
-        $page = $request->input('page', 1);
-        
-        // Get all buses (this calls the full mapping logic)
+        $page    = $request->input('page', 1);
+
         $allBuses = $this->busService->getAllBuses();
-        
-        // Manually paginate the collection
+
         $total = count($allBuses);
         $items = collect($allBuses)->slice(($page - 1) * $perPage, $perPage)->values();
-        
-        // Create a LengthAwarePaginator instance
+
         $buses = new \Illuminate\Pagination\LengthAwarePaginator(
             $items,
             $total,
@@ -39,7 +32,7 @@ class BusController extends BaseController {
             $page,
             ['path' => $request->url(), 'query' => $request->query()]
         );
-        
+
         return $this->responsePaginated($buses, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
@@ -50,26 +43,25 @@ class BusController extends BaseController {
 
     public function store(Request $request) {
         $data = $request->validate([
-            'kode_bus' => 'required|string|max:20|unique:buses',
+            'kode_bus'   => 'required|string|max:20|unique:buses',
             'plat_nomor' => 'required|string|max:15|unique:buses',
-            'status' => 'required|in:aktif,nonaktif,maintenance',
-            'nama_rute' => 'sometimes|string|max:150',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'status'     => 'required|in:aktif,nonaktif,maintenance',
+            'nama_rute'  => 'sometimes|string|max:150',
+            'photo'      => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ], [
-            'kode_bus.required' => 'Kode bus wajib diisi',
-            'kode_bus.unique' => 'Kode bus sudah terdaftar',
+            'kode_bus.required'   => 'Kode bus wajib diisi',
+            'kode_bus.unique'     => 'Kode bus sudah terdaftar',
             'plat_nomor.required' => 'Nomor plat wajib diisi',
-            'plat_nomor.unique' => 'Nomor plat sudah terdaftar',
-            'status.required' => 'Status wajib diisi',
-            'status.in' => 'Status harus aktif, nonaktif, atau maintenance',
-            'nama_rute.max' => 'Nama rute maksimal 150 karakter',
-            'photo.image' => 'File harus berupa gambar',
-            'photo.mimes' => 'Format gambar harus jpeg, png, jpg, atau gif',
-            'photo.max' => 'Ukuran gambar maksimal 2MB',
+            'plat_nomor.unique'   => 'Nomor plat sudah terdaftar',
+            'status.required'     => 'Status wajib diisi',
+            'status.in'           => 'Status harus aktif, nonaktif, atau maintenance',
+            'nama_rute.max'       => 'Nama rute maksimal 150 karakter',
+            'photo.image'         => 'File harus berupa gambar',
+            'photo.mimes'         => 'Format gambar harus jpeg, png, jpg, atau gif',
+            'photo.max'           => 'Ukuran gambar maksimal 2MB',
         ]);
 
-        // Handle photo upload — simpan langsung ke public/images/buses/
-        // (tidak pakai Storage disk 'public' karena symlink NTFS gagal di server ini)
+        // Simpan foto langsung ke public/images/buses/ (tanpa symlink storage)
         if ($request->hasFile('photo')) {
             $photo    = $request->file('photo');
             $filename = uniqid('bus_', true) . '.' . $photo->getClientOriginalExtension();
@@ -89,25 +81,24 @@ class BusController extends BaseController {
     public function update(Request $request, $id) {
         $this->busService->getBusById($id);
         $data = $request->validate([
-            'kode_bus' => 'sometimes|string|max:20|unique:buses,kode_bus,' . $id,
+            'kode_bus'   => 'sometimes|string|max:20|unique:buses,kode_bus,' . $id,
             'plat_nomor' => 'sometimes|string|max:15|unique:buses,plat_nomor,' . $id,
-            'status' => 'sometimes|in:aktif,nonaktif,maintenance',
-            'nama_rute' => 'sometimes|nullable|string|max:150',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'status'     => 'sometimes|in:aktif,nonaktif,maintenance',
+            'nama_rute'  => 'sometimes|nullable|string|max:150',
+            'photo'      => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ], [
-            'kode_bus.unique' => 'Kode bus sudah terdaftar',
+            'kode_bus.unique'   => 'Kode bus sudah terdaftar',
             'plat_nomor.unique' => 'Nomor plat sudah terdaftar',
-            'status.in' => 'Status harus aktif, nonaktif, atau maintenance',
-            'nama_rute.max' => 'Nama rute maksimal 150 karakter',
-            'photo.image' => 'File harus berupa gambar',
-            'photo.mimes' => 'Format gambar harus jpeg, png, jpg, atau gif',
-            'photo.max' => 'Ukuran gambar maksimal 2MB',
+            'status.in'         => 'Status harus aktif, nonaktif, atau maintenance',
+            'nama_rute.max'     => 'Nama rute maksimal 150 karakter',
+            'photo.image'       => 'File harus berupa gambar',
+            'photo.mimes'       => 'Format gambar harus jpeg, png, jpg, atau gif',
+            'photo.max'         => 'Ukuran gambar maksimal 2MB',
         ]);
 
-        // Handle photo upload — simpan langsung ke public/images/buses/
+        // Handle photo upload — simpan ke public/images/buses/
         if ($request->hasFile('photo')) {
-            // Hapus foto lama jika ada
-            $bus = \App\Models\Bus::find($id);
+            $bus = Bus::find($id);
             if ($bus?->photo && file_exists(public_path($bus->photo))) {
                 @unlink(public_path($bus->photo));
             }
@@ -134,39 +125,43 @@ class BusController extends BaseController {
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }
 
-<<<<<<< HEAD
+    // Upload/ganti foto bus via POST multipart (dipakai Flutter)
     public function uploadPhoto(Request $request, $id) {
         $request->validate([
             'photo' => 'required|image|mimes:jpeg,png,jpg|max:2048',
         ], [
             'photo.required' => 'Foto wajib diisi',
-            'photo.image' => 'File harus berupa gambar',
-            'photo.mimes' => 'Format foto harus jpeg, png, atau jpg',
-            'photo.max' => 'Ukuran foto maksimal 2MB',
+            'photo.image'    => 'File harus berupa gambar',
+            'photo.mimes'    => 'Format foto harus jpeg, png, atau jpg',
+            'photo.max'      => 'Ukuran foto maksimal 2MB',
         ]);
 
         $bus = Bus::findOrFail($id);
 
-        if ($bus->photo && Storage::disk('public')->exists($bus->photo)) {
-            Storage::disk('public')->delete($bus->photo);
+        // Hapus foto lama jika ada
+        if ($bus->photo && file_exists(public_path($bus->photo))) {
+            @unlink(public_path($bus->photo));
         }
 
-        $path = $request->file('photo')->store('buses/photos', 'public');
-        $bus->photo = $path;
+        $photo    = $request->file('photo');
+        $filename = uniqid('bus_', true) . '.' . $photo->getClientOriginalExtension();
+        $destDir  = public_path('images/buses');
+        if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+        $photo->move($destDir, $filename);
+
+        $bus->photo = 'images/buses/' . $filename;
         $bus->save();
 
         return $this->responseSuccess([
-            'photo_url' => asset('storage/' . $path),
+            'photo_url' => $bus->photo_url,
         ], 'Foto bus berhasil diupdate');
     }
 
-=======
-    // update bus photo (accept photo path string, not file)
+    // Update foto bus via path string (opsional)
     public function updatePhoto(Request $request, $id) {
         $data = $request->validate([
-            'photo' => 'required|string', // Accept path string instead of file
+            'photo' => 'required|string',
         ]);
-
         $result = $this->busService->updateBus($id, $data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -174,8 +169,7 @@ class BusController extends BaseController {
         return $this->responseUpdated($result['bus'], AppMessages::SUCCESS_UPDATED);
     }
 
-    // get daftar siswa yang terdaftar di bus
->>>>>>> kelompok/main
+    // Daftar siswa yang terdaftar di bus
     public function students(Request $request, $id) {
         $students = $this->busService->getBusStudents($id);
         return $this->responsePaginated($students, AppMessages::SUCCESS_DATA_RETRIEVED);
@@ -196,16 +190,16 @@ class BusController extends BaseController {
 
     public function assignDriver(Request $request, $id) {
         $data = $request->validate([
-            'driver_id' => ['required', Rule::exists('drivers', 'id')],
-            'tanggal_mulai' => 'required|date',
-            'tanggal_selesai' => 'nullable|date|after_or_equal:tanggal_mulai',
+            'driver_id'        => ['required', Rule::exists('drivers', 'id')],
+            'tanggal_mulai'    => 'required|date',
+            'tanggal_selesai'  => 'nullable|date|after_or_equal:tanggal_mulai',
         ], [
-            'driver_id.required' => 'Driver wajib diisi',
-            'driver_id.exists' => 'Driver tidak ditemukan',
-            'tanggal_mulai.required' => 'Tanggal mulai wajib diisi',
-            'tanggal_mulai.date' => 'Tanggal mulai harus format tanggal valid',
-            'tanggal_selesai.date' => 'Tanggal selesai harus format tanggal valid',
-            'tanggal_selesai.after_or_equal' => 'Tanggal selesai harus setelah atau sama dengan tanggal mulai',
+            'driver_id.required'              => 'Driver wajib diisi',
+            'driver_id.exists'                => 'Driver tidak ditemukan',
+            'tanggal_mulai.required'          => 'Tanggal mulai wajib diisi',
+            'tanggal_mulai.date'              => 'Tanggal mulai harus format tanggal valid',
+            'tanggal_selesai.date'            => 'Tanggal selesai harus format tanggal valid',
+            'tanggal_selesai.after_or_equal'  => 'Tanggal selesai harus setelah atau sama dengan tanggal mulai',
         ]);
         $result = $this->busService->assignDriverToBus(
             $id,

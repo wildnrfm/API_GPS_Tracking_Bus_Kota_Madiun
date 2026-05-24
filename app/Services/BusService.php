@@ -54,7 +54,6 @@ class BusService {
                 'kode_bus'        => $bus->kode_bus,
                 'plat_nomor'      => $bus->plat_nomor,
                 'status'          => $bus->status,
-                'photo_url'       => $bus->photo ? asset('storage/' . $bus->photo) : null,
                 'photo'           => $bus->photo,
                 'photo_url'       => $bus->photo_url,
                 'gps_status'      => $gpsStatus,
