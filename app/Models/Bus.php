@@ -17,10 +17,13 @@ class Bus extends Model {
     protected $appends = ['photo_url'];
 
     public function getPhotoUrlAttribute(): ?string {
-        if (!$this->photo) return null;
-        // Simpan foto langsung di public/images/buses/ (tanpa butuh symlink storage)
-        // URL: http://127.0.0.1:8000/images/buses/xxx.jpg
-        return asset($this->photo);
+        if (!$this->photo) {
+            return null;
+        }
+
+        $photoPath = '/' . ltrim($this->photo, '/');
+        $host = request()->getSchemeAndHttpHost() ?: rtrim(config('app.url'), '/');
+        return $host . $photoPath;
     }
 
     public function drivers() {

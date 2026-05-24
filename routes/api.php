@@ -20,6 +20,8 @@ use App\Http\Controllers\API\DailyReportController;
 use App\Http\Controllers\API\ReportController;
 use App\Http\Controllers\API\ActivityController;
 
+// CORS preflight (OPTIONS) ditangani otomatis oleh HandleCors middleware via config/cors.php
+
 // ─── PUBLIC ───────────────────────────────────────────────────
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:5,1');
@@ -28,6 +30,7 @@ Route::prefix('auth')->group(function () {
     Route::post('check-approval', [AuthController::class, 'checkApproval'])->middleware('throttle:30,1');
     Route::middleware(['auth:api', 'check.token.expiration'])->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
+        Route::post('refresh', [AuthController::class, 'refreshToken']);
         Route::get('me', [AuthController::class, 'me']);
         Route::post('change-password', [AuthController::class, 'changePassword']);
         Route::put('profile', [AuthController::class, 'updateProfile']);
@@ -42,6 +45,11 @@ Route::middleware('auth:api')->group(function () {
 
     // Halte dalam rute (dipakai siswa untuk lihat halte)
     Route::get('routes/{id}/haltes', [RouteHalteController::class, 'getHaltesByRoute']);
+
+    // SSE real-time GPS stream — diakses admin via EventSource dengan ?token=
+    // Tidak bisa masuk grup admin middleware karena EventSource tidak support custom headers
+    // Validasi role admin dilakukan di dalam stream() method
+    Route::get('gps-tracks/stream', [GpsTrackController::class, 'stream']);
 
     // Laporan driver
     Route::prefix('reports')->group(function () {
@@ -93,11 +101,11 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('buses', [BusController::class, 'index']);
     Route::get('buses/{id}', [BusController::class, 'show']);
     Route::post('buses', [BusController::class, 'store']);
-    Route::put('buses/{id}', [BusController::class, 'update']);
+    Route::match(['post', 'put', 'patch'], 'buses/{id}', [BusController::class, 'update']);
     // POST route untuk method spoofing (_method=PUT): dipakai saat upload foto via FormData
     // karena PHP tidak bisa baca $_FILES dari PUT request (hanya POST yang didukung)
     Route::post('buses/{id}', [BusController::class, 'update']);
-    Route::put('buses/{id}/photo', [BusController::class, 'updatePhoto']);
+    Route::match(['post', 'put', 'patch'], 'buses/{id}/photo', [BusController::class, 'updatePhoto']);
     Route::delete('buses/{id}', [BusController::class, 'destroy']);
     Route::get('buses/{id}/students', [BusController::class, 'students']);
     Route::post('buses/{id}/students', [StudentBusController::class, 'assignStudentToBus']);
@@ -145,7 +153,6 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     Route::get('gps-tracks', [GpsTrackController::class, 'index']);
     Route::get('gps-tracks/latest', [GpsTrackController::class, 'latest']);
     Route::get('gps-tracks/dashboard', [GpsTrackController::class, 'dashboard']);
-    Route::get('gps-tracks/stream', [GpsTrackController::class, 'stream']); // SSE real-time
     Route::get('buses/{id}/gps/latest', [GpsTrackController::class, 'latestByBus']);
     Route::get('buses/{id}/gps', [GpsTrackController::class, 'history']);
     Route::post('gps/process-offline-queue', [GpsTrackController::class, 'processOfflineQueue']);

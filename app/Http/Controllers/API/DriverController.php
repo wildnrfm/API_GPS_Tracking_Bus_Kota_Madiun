@@ -40,7 +40,18 @@ class DriverController extends BaseController {
             'nik' => ['required', 'string', Rule::unique('drivers', 'nik')],
             'no_hp' => 'required|string|max:15',
             'alamat' => 'required|string|max:500',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $photo    = $request->file('photo');
+            $filename = uniqid('driver_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/driver');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/driver/' . $filename;
+        }
+
         $result = $this->driverService->createDriver($data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -54,13 +65,52 @@ class DriverController extends BaseController {
     public function update(Request $request, $id) {
         $rules = [];
         $messages = [];
+
+        // Resolve Driver ID and User ID to support both Web Admin and Mobile/Flutter requests
+        $driverByDriverId = \App\Models\Driver::find($id);
+        $driverByUserId = \App\Models\Driver::where('user_id', $id)->first();
+        
+        $driver = null;
+        if ($driverByDriverId && !$driverByUserId) {
+            $driver = $driverByDriverId;
+        } elseif (!$driverByDriverId && $driverByUserId) {
+            $driver = $driverByUserId;
+        } elseif ($driverByDriverId && $driverByUserId) {
+            // BOTH match! Resolve ambiguity using request fields
+            $requestNik = $request->input('nik');
+            $requestEmail = $request->input('email');
+            
+            if ($requestEmail) {
+                if ($driverByDriverId->user && $driverByDriverId->user->email === $requestEmail) {
+                    $driver = $driverByDriverId;
+                } elseif ($driverByUserId->user && $driverByUserId->user->email === $requestEmail) {
+                    $driver = $driverByUserId;
+                } else {
+                    $driver = $driverByDriverId;
+                }
+            } elseif ($requestNik) {
+                if ($driverByDriverId->nik === $requestNik) {
+                    $driver = $driverByDriverId;
+                } elseif ($driverByUserId->nik === $requestNik) {
+                    $driver = $driverByUserId;
+                }
+            }
+            
+            if (!$driver) {
+                $driver = $request->has('email') ? $driverByDriverId : $driverByUserId;
+            }
+        }
+
+        $userId = $driver ? $driver->user_id : $id;
+        $driverId = $driver ? $driver->id : $id;
+
         if ($request->has('name')) {
             $rules['name'] = 'required|string|max:255';
             $messages['name.required'] = AppMessages::ERROR_NAME_REQUIRED;
             $messages['name.max'] = AppMessages::ERROR_NAME_TOO_LONG;
         }
         if ($request->has('email')) {
-            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($id)];
+            $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($userId)];
             $messages['email.required'] = AppMessages::ERROR_EMAIL_REQUIRED;
             $messages['email.email'] = AppMessages::ERROR_EMAIL_INVALID;
             $messages['email.unique'] = AppMessages::ERROR_EMAIL_TAKEN;
@@ -74,7 +124,7 @@ class DriverController extends BaseController {
             $messages['password_confirmation.required'] = 'Password confirmation harus diisi';
         }
         if ($request->has('nik')) {
-            $rules['nik'] = ['required', 'string', Rule::unique('drivers', 'nik')->ignore($id)];
+            $rules['nik'] = ['required', 'string', Rule::unique('drivers', 'nik')->ignore($driverId)];
             $messages['nik.required'] = 'NIK harus diisi';
             $messages['nik.unique'] = 'NIK sudah terdaftar';
         }
@@ -86,11 +136,30 @@ class DriverController extends BaseController {
             $rules['alamat'] = 'sometimes|string|max:500';
             $messages['alamat.max'] = 'Alamat terlalu panjang';
         }
+        if ($request->hasFile('photo') || $request->has('photo')) {
+            $rules['photo'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+            $messages['photo.image'] = 'File harus berupa gambar';
+            $messages['photo.mimes'] = 'Format gambar harus jpeg, png, jpg, atau gif';
+            $messages['photo.max'] = 'Ukuran gambar maksimal 2MB';
+        }
         if (empty($rules)) {
             return $this->responseError('Tidak ada data yang dapat diupdate', null, 422);
         }
         $data = $request->validate($rules, $messages);
-        $result = $this->driverService->updateDriver($id, $data);
+
+        if ($request->hasFile('photo')) {
+            if ($driver && $driver->user?->photo && file_exists(public_path($driver->user->photo))) {
+                @unlink(public_path($driver->user->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('driver_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/driver');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/driver/' . $filename;
+        }
+
+        $result = $this->driverService->updateDriver($userId, $data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
         }
@@ -101,7 +170,25 @@ class DriverController extends BaseController {
     }
 
     public function destroy(Request $request, $id) {
-        $result = $this->driverService->deleteDriver($id);
+        // Resolve Driver ID and User ID to support both Web Admin and Mobile/Flutter requests
+        $driverByDriverId = \App\Models\Driver::find($id);
+        $driverByUserId = \App\Models\Driver::where('user_id', $id)->first();
+        
+        $driver = null;
+        if ($driverByDriverId && !$driverByUserId) {
+            $driver = $driverByDriverId;
+        } elseif (!$driverByDriverId && $driverByUserId) {
+            $driver = $driverByUserId;
+        } elseif ($driverByDriverId && $driverByUserId) {
+            // Under DELETE request, we don't have NIK/Email in payload.
+            // Check User-Agent to distinguish Web Admin (browser/curl) from Flutter (dart).
+            $isDart = str_contains(strtolower($request->header('User-Agent', '')), 'dart');
+            $driver = $isDart ? $driverByUserId : $driverByDriverId;
+        }
+
+        $userId = $driver ? $driver->user_id : $id;
+
+        $result = $this->driverService->deleteDriver($userId);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
         }
@@ -152,7 +239,7 @@ class DriverController extends BaseController {
         $data = $request->validate([
             'gps_status' => 'required|in:on,off',
         ]);
-        
+
         $busDriver = BusDriver::where('driver_id', $driver->id)
             ->active()
             ->latest('created_at')
@@ -164,16 +251,26 @@ class DriverController extends BaseController {
         if (!$bus || $bus->status !== 'aktif') {
             return $this->responseForbidden('Bus tidak aktif');
         }
-        if ($data['gps_status'] === 'on') {
-            
-        }
+
+        // Selalu update last_gps_update baik ON maupun OFF.
+        // Ini penting agar stale-check (30 detik) bisa menghitung dengan benar:
+        // - Saat ON  → last_gps_update = now() → admin tahu kapan GPS dihidupkan
+        // - Saat OFF → last_gps_update = now() → stale-check tidak salah reset
         $busDriver->update([
             'gps_status'      => $data['gps_status'],
-            'last_gps_update' => $data['gps_status'] === 'on' ? now() : $busDriver->last_gps_update,
+            'last_gps_update' => now(),
         ]);
+
+        // Reload relasi untuk response
+        $busDriver->load('bus:id,kode_bus,plat_nomor');
+        $driverUser = $driver->user ?? $request->user();
+
         return $this->responseSuccess([
             'gps_status'      => $data['gps_status'],
             'last_gps_update' => $busDriver->last_gps_update,
+            'driver_name'     => $driverUser->name ?? '',
+            'bus_code'        => $busDriver->bus->kode_bus ?? '',
+            'bus_id'          => $busDriver->bus_id,
         ], AppMessages::SUCCESS_GPS_STATUS_UPDATED);
     }
 

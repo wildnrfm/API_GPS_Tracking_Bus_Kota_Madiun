@@ -28,8 +28,18 @@ class User extends Authenticatable {
     protected $appends = ['photo_url'];
 
     public function getPhotoUrlAttribute(): ?string {
-        if (!$this->photo) return null;
-        return url('storage/' . $this->photo);
+        if (!$this->photo) {
+            return null;
+        }
+
+        $photoPath = '/' . ltrim($this->photo, '/');
+        $host = request()->getSchemeAndHttpHost() ?: rtrim(config('app.url'), '/');
+        
+        if (str_starts_with($photoPath, '/images/')) {
+            return $host . $photoPath;
+        }
+
+        return $host . '/storage' . $photoPath;
     }
 
     protected function casts(): array {

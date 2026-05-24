@@ -49,7 +49,18 @@ class StudentController extends BaseController {
             'kelas' => 'sometimes|string|max:100',
             'alamat' => 'required|string|max:500',
             'no_hp' => 'required|string|max:15',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $photo    = $request->file('photo');
+            $filename = uniqid('siswa_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/siswa');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/siswa/' . $filename;
+        }
+
         $result = $this->studentService->createStudent($data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -105,10 +116,30 @@ class StudentController extends BaseController {
             $rules['no_hp'] = 'sometimes|string|max:15';
             $messages['no_hp.max'] = 'Nomor HP terlalu panjang';
         }
+        if ($request->hasFile('photo') || $request->has('photo')) {
+            $rules['photo'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+            $messages['photo.image'] = 'File harus berupa gambar';
+            $messages['photo.mimes'] = 'Format gambar harus jpeg, png, jpg, atau gif';
+            $messages['photo.max'] = 'Ukuran gambar maksimal 2MB';
+        }
         if (empty($rules)) {
             return $this->responseError('Tidak ada data yang dapat diupdate', null, 422);
         }
         $data = $request->validate($rules, $messages);
+
+        if ($request->hasFile('photo')) {
+            $student = Student::findOrFail($id);
+            if ($student->user?->photo && file_exists(public_path($student->user->photo))) {
+                @unlink(public_path($student->user->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('siswa_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/siswa');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/siswa/' . $filename;
+        }
+
         $result = $this->studentService->updateStudent($id, $data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -637,6 +668,7 @@ class StudentController extends BaseController {
                 'name'  => $student->user->name,
                 'email' => $student->user->email,
                 'role'  => $student->user->role,
+                'photo_url' => $student->user->photo_url,
             ] : null,
             // Info bus & rute untuk QR card
             'bus'   => $bus ? [

@@ -37,6 +37,7 @@ class AdminController extends BaseController {
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users', 'email')],
             'password' => 'required|string|min:8|confirmed',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ], [
             'name.required' => AppMessages::ERROR_NAME_REQUIRED,
             'name.max' => AppMessages::ERROR_NAME_TOO_LONG,
@@ -46,7 +47,20 @@ class AdminController extends BaseController {
             'password.required' => AppMessages::ERROR_PASSWORD_REQUIRED,
             'password.min' => AppMessages::ERROR_PASSWORD_WEAK,
             'password.confirmed' => AppMessages::ERROR_PASSWORD_MISMATCH,
+            'photo.image' => 'File harus berupa gambar',
+            'photo.mimes' => 'Format gambar harus jpeg, png, jpg, atau gif',
+            'photo.max' => 'Ukuran gambar maksimal 2MB',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $photo    = $request->file('photo');
+            $filename = uniqid('admin_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/admin');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/admin/' . $filename;
+        }
+
         $result = $this->userService->createAdmin($data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -77,10 +91,30 @@ class AdminController extends BaseController {
             $messages['password.confirmed'] = AppMessages::ERROR_PASSWORD_MISMATCH;
             $messages['password_confirmation.required'] = 'Password confirmation harus diisi';
         }
+        if ($request->hasFile('photo') || $request->has('photo')) {
+            $rules['photo'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+            $messages['photo.image'] = 'File harus berupa gambar';
+            $messages['photo.mimes'] = 'Format gambar harus jpeg, png, jpg, atau gif';
+            $messages['photo.max'] = 'Ukuran gambar maksimal 2MB';
+        }
         if (empty($rules)) {
             return $this->responseError('Tidak ada data yang dapat diupdate', null, 422);
         }
         $data = $request->validate($rules, $messages);
+
+        if ($request->hasFile('photo')) {
+            $admin = User::where('role', 'admin')->findOrFail($id);
+            if ($admin->photo && file_exists(public_path($admin->photo))) {
+                @unlink(public_path($admin->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('admin_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/admin');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/admin/' . $filename;
+        }
+
         $result = $this->userService->updateAdmin($id, $data);
         if (!$result['success']) {
             return $this->responseNotFound($result['error'] ?? AppMessages::ERROR_USER_NOT_FOUND);

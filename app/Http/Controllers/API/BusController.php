@@ -136,9 +136,27 @@ class BusController extends BaseController {
 
     // update bus photo (accept photo path string, not file)
     public function updatePhoto(Request $request, $id) {
-        $data = $request->validate([
-            'photo' => 'required|string', // Accept path string instead of file
-        ]);
+        if ($request->hasFile('photo')) {
+            $data = $request->validate([
+                'photo' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ]);
+            $bus = \App\Models\Bus::find($id);
+            if ($bus?->photo && file_exists(public_path($bus->photo))) {
+                @unlink(public_path($bus->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('bus_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/buses');
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0755, true);
+            }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/buses/' . $filename;
+        } else {
+            $data = $request->validate([
+                'photo' => 'required|string',
+            ]);
+        }
 
         $result = $this->busService->updateBus($id, $data);
         if (!$result['success']) {

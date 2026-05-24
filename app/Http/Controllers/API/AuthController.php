@@ -81,6 +81,15 @@ class AuthController extends BaseController {
         return $this->responseSuccess(null, 'Logout berhasil');
     }
 
+    // Refresh token untuk extend expiration tanpa perlu login ulang
+    public function refreshToken(Request $request) {
+        $user = $request->user();
+        $ipAddress = $request->ip();
+        $userAgent = $request->userAgent();
+        $result = $this->authService->refreshUserToken($user, $ipAddress, $userAgent);
+        return $this->responseSuccess($result, 'Token berhasil diperbarui');
+    }
+
     //Get data user yang sedang login
     public function me(Request $request) {
         $user = $request->user();
