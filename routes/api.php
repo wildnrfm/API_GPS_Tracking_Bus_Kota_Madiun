@@ -35,6 +35,7 @@ Route::prefix('auth')->group(function () {
         Route::post('change-password', [AuthController::class, 'changePassword']);
         Route::put('profile', [AuthController::class, 'updateProfile']);
         Route::post('profile/photo', [AuthController::class, 'uploadPhoto']);
+        Route::delete('profile/photo', [AuthController::class, 'deletePhoto']);
     });
 });
 

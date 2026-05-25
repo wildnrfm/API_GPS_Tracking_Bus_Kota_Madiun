@@ -118,11 +118,19 @@ class ReportController extends BaseController {
         $tanggal = $request->input('tanggal');
         $today   = $tanggal;
 
-        // Ambil semua bus yang punya attendance hari ini
-        $busIds = \App\Models\Attendance::whereDate('tanggal', $today)
+        // Ambil semua bus yang punya attendance atau daily report hari ini
+        $busIdsFromAttendance = \App\Models\Attendance::whereDate('tanggal', $today)
             ->whereNotNull('waktu_naik')
             ->pluck('bus_id')
-            ->unique();
+            ->unique()
+            ->toArray();
+
+        $busIdsFromDailyReport = \App\Models\DailyReport::whereDate('tanggal', $today)
+            ->pluck('bus_id')
+            ->unique()
+            ->toArray();
+
+        $busIds = array_unique(array_merge($busIdsFromAttendance, $busIdsFromDailyReport));
 
         $buses = \App\Models\Bus::whereIn('id', $busIds)->get();
 

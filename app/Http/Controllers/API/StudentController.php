@@ -22,12 +22,12 @@ class StudentController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    //Get semua siswa (dengan info bus & rute)
     public function index(Request $request) {
         // [FIX] Gunakan perPage sangat besar agar semua siswa ter-return dalam 1 halaman.
         // Sebelumnya hardcode 15 → frontend hanya dapat 15 siswa pertama saja.
         $perPage = (int) $request->query('per_page', 1000);
-        $paginator = $this->studentService->getAllStudents($perPage);
+        $approvalStatus = $request->query('approval_status');
+        $paginator = $this->studentService->getAllStudents($perPage, $approvalStatus);
         $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
         return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }

@@ -238,19 +238,48 @@ class AuthController extends BaseController {
         ]);
 
         $user = $request->user();
+        $role = $user->role ?: 'admin';
+        $folderName = $role === 'admin' ? 'admin' : ($role === 'siswa' ? 'siswa' : 'driver');
 
-        if ($user->photo) {
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($user->photo);
+        if ($user->photo && file_exists(public_path($user->photo))) {
+            @unlink(public_path($user->photo));
         }
 
-        $path = $request->file('photo')->store('profile_photos', 'public');
-        $user->photo = $path;
+        $photo = $request->file('photo');
+        $filename = uniqid($role . '_', true) . '.' . $photo->getClientOriginalExtension();
+        $destDir = public_path('images/' . $folderName);
+        if (!is_dir($destDir)) {
+            mkdir($destDir, 0755, true);
+        }
+        $photo->move($destDir, $filename);
+
+        $user->photo = 'images/' . $folderName . '/' . $filename;
         $user->save();
 
         return $this->responseSuccess([
             'photo_url' => $user->photo_url,
         ], 'Foto profil berhasil diperbarui');
     }
+
+    // Hapus foto profil user
+    public function deletePhoto(Request $request) {
+        $user = $request->user();
+
+        if (!$user->photo) {
+            return $this->responseError('Tidak ada foto untuk dihapus', null, 404);
+        }
+
+        if (file_exists(public_path($user->photo))) {
+            @unlink(public_path($user->photo));
+        }
+
+        $user->photo = null;
+        $user->save();
+
+        return $this->responseSuccess(null, 'Foto profil berhasil dihapus');
+    }
+
+
 
     /**
      * Cek status approval siswa berdasarkan email.

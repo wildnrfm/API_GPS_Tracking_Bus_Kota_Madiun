@@ -14,8 +14,12 @@ use Illuminate\Support\Facades\Mail;
 class StudentService {
     use CreatesUser;
 
-    public function getAllStudents($perPage = 15) {
-        return Student::with(['user', 'buses.routes', 'halte'])->paginate($perPage);
+    public function getAllStudents($perPage = 15, $approvalStatus = null) {
+        $query = Student::with(['user', 'buses.routes', 'halte']);
+        if ($approvalStatus) {
+            $query->where('approval_status', $approvalStatus);
+        }
+        return $query->paginate($perPage);
     }
 
     public function getStudentById($id) {

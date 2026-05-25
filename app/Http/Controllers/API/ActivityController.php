@@ -33,31 +33,86 @@ class ActivityController extends BaseController {
         if ($request->has('search')) {
             $query->where('description', 'like', '%' . $request->search . '%');
         }
-        $logs = $query->latest()->paginate(50);
+        $perPage = $request->input('per_page', 50);
+        $logs = $query->latest()->paginate($perPage);
         return $this->responsePaginated($logs, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
     // get security dashboard summary
     public function dashboard(Request $request) {
-        $recentLogins = ActivityLog::where('action', 'login')->where('status', 'success')->where('created_at', '>', now()->subHours(24))->count();
+        $startDate = null;
+        $endDate = null;
 
-        // Failed login attempts (24 jam terakhir)
-        $failedLogins = ActivityLog::where('action', 'like', 'login%')->where('status', 'failed')->where('created_at', '>', now()->subHours(24))->count();
+        if ($request->has('start_date') && $request->has('end_date')) {
+            $startDate = \Carbon\Carbon::parse($request->start_date)->startOfDay();
+            $endDate = \Carbon\Carbon::parse($request->end_date)->endOfDay();
+        } elseif ($request->has('date')) {
+            $startDate = \Carbon\Carbon::parse($request->date)->startOfDay();
+            $endDate = \Carbon\Carbon::parse($request->date)->endOfDay();
+        }
 
-        // Blocked logins (suspended accounts)
-        $blockedLogins = ActivityLog::where('action', 'login_blocked')->where('created_at', '>', now()->subHours(24))->count();
+        // Recent logins count
+        $recentLoginsQuery = ActivityLog::where('action', 'login')->where('status', 'success');
+        if ($startDate && $endDate) {
+            $recentLoginsQuery->whereBetween('created_at', [$startDate, $endDate]);
+        } else {
+            $recentLoginsQuery->where('created_at', '>', now()->subHours(24));
+        }
+        $recentLogins = $recentLoginsQuery->count();
 
-        // Suspended accounts
+        // Failed login attempts
+        $failedLoginsQuery = ActivityLog::where('action', 'like', 'login%')->where('status', 'failed');
+        if ($startDate && $endDate) {
+            $failedLoginsQuery->whereBetween('created_at', [$startDate, $endDate]);
+        } else {
+            $failedLoginsQuery->where('created_at', '>', now()->subHours(24));
+        }
+        $failedLogins = $failedLoginsQuery->count();
+
+        // Blocked logins
+        $blockedLoginsQuery = ActivityLog::where('action', 'login_blocked');
+        if ($startDate && $endDate) {
+            $blockedLoginsQuery->whereBetween('created_at', [$startDate, $endDate]);
+        } else {
+            $blockedLoginsQuery->where('created_at', '>', now()->subHours(24));
+        }
+        $blockedLogins = $blockedLoginsQuery->count();
+
+        // Suspended accounts - always current count
         $suspendedAccounts = User::where('is_suspended', true)->count();
 
-        // Top 10 most active users (7 hari terakhir)
-        $activeUsers = ActivityLog::where('created_at', '>', now()->subDays(7))->groupBy('user_id')->selectRaw('user_id, COUNT(*) as activity_count')->with('user:id,name,email,role')->orderByDesc('activity_count')->limit(10)->get();
+        // Top 10 most active users
+        $activeUsersQuery = ActivityLog::query();
+        if ($startDate && $endDate) {
+            $activeUsersQuery->whereBetween('created_at', [$startDate, $endDate]);
+        } else {
+            $activeUsersQuery->where('created_at', '>', now()->subDays(7));
+        }
+        $activeUsers = $activeUsersQuery->groupBy('user_id')
+            ->selectRaw('user_id, COUNT(*) as activity_count')
+            ->with('user:id,name,email,role')
+            ->orderByDesc('activity_count')
+            ->limit(10)
+            ->get();
 
-        // Recent failed logins (10 terakhir)
-        $recentFailures = ActivityLog::where('action', 'login_failed')->with('user')->latest()->limit(10)->get();
+        // Recent failed logins
+        $recentFailuresQuery = ActivityLog::where('action', 'login_failed');
+        if ($startDate && $endDate) {
+            $recentFailuresQuery->whereBetween('created_at', [$startDate, $endDate]);
+        }
+        $recentFailures = $recentFailuresQuery->with('user')->latest()->limit(10)->get();
 
-        // Activity by type (30 hari terakhir)
-        $activityByType = ActivityLog::where('created_at', '>', now()->subDays(30))->groupBy('action')->selectRaw('action, COUNT(*) as count')->orderByDesc('count')->get();
+        // Activity by type
+        $activityByTypeQuery = ActivityLog::query();
+        if ($startDate && $endDate) {
+            $activityByTypeQuery->whereBetween('created_at', [$startDate, $endDate]);
+        } else {
+            $activityByTypeQuery->where('created_at', '>', now()->subDays(30));
+        }
+        $activityByType = $activityByTypeQuery->groupBy('action')
+            ->selectRaw('action, COUNT(*) as count')
+            ->orderByDesc('count')
+            ->get();
 
         $data = [
             'summary' => [
