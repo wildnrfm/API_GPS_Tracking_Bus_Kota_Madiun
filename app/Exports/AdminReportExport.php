@@ -2,20 +2,27 @@
 
 namespace App\Exports;
 
-class AdminReportExport {
+class AdminReportExport
+{
     private $reportData;
 
-    public function __construct($reportData) {
+    public function __construct($reportData)
+    {
         $this->reportData = $reportData;
     }
 
-    public function toArray(): array {
+    public function toArray(): array
+    {
         $rows = [];
+
+        // Header laporan
         $rows[] = ['LAPORAN HARIAN MONITORING BUS'];
         $rows[] = ['Tanggal: ' . $this->reportData['tanggal']];
         $rows[] = ['Total Bus: ' . $this->reportData['total_buses']];
         $rows[] = ['Total Penumpang: ' . $this->reportData['total_passengers']];
         $rows[] = [];
+
+        // Header kolom tabel
         $rows[] = [
             'No.',
             'Kode Bus',
@@ -27,6 +34,7 @@ class AdminReportExport {
             'Penumpang Turun',
         ];
 
+        // Isi data per bus
         foreach ($this->reportData['buses'] as $index => $bus) {
             $rows[] = [
                 $index + 1,
@@ -39,6 +47,7 @@ class AdminReportExport {
                 $bus['alighting_count'],
             ];
         }
+
         return $rows;
     }
 }

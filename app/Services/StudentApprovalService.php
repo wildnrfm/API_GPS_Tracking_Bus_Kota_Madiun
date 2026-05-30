@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Mail\StudentApprovedMail;
 use App\Mail\StudentRejectedMail;
 use App\Models\Student;
+use App\Models\StudentRejectionHistory;
 use App\Models\User;
 use App\Traits\CreatesUser;
 use Illuminate\Support\Facades\Mail;
@@ -60,7 +61,7 @@ class StudentApprovalService {
         }
     }
 
-    public function rejectStudent(Student $student, string $reason) {
+    public function rejectStudent(Student $student, string $reason, ?int $rejectedBy = null) {
         if ($student->approval_status !== 'pending') {
             throw new \Exception('Hanya siswa dengan status pending yang dapat ditolak');
         }
@@ -69,6 +70,12 @@ class StudentApprovalService {
             $student->rejection_reason = $reason;
             $student->save();
             $student->load('user');
+
+            StudentRejectionHistory::create([
+                'student_id'  => $student->id,
+                'rejected_by' => $rejectedBy,
+                'reason'      => $reason,
+            ]);
 
             // Kirim email notifikasi penolakan ke siswa
             $email = $student->user->email ?? null;

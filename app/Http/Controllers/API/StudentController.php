@@ -38,6 +38,26 @@ class StudentController extends BaseController {
         return $this->responseSuccess($this->formatStudentWithBus($student), AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
+    public function rejectionHistories(Request $request, $id) {
+        $perPage = (int) $request->query('per_page', 50);
+        $histories = $this->studentService->getStudentRejectionHistories($id, $perPage);
+        return $this->responsePaginated($histories, AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    public function rejectionHistoryList(Request $request) {
+        $perPage = (int) $request->query('per_page', 500);
+        $histories = $this->studentService->getAllRejectionHistories($perPage);
+        return $this->responsePaginated($histories, AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    public function destroyRejectionHistory(Request $request, $id) {
+        $result = $this->studentService->deleteRejectionHistory($id);
+        if (!$result['success']) {
+            return $this->responseError($result['error'], null, $result['code'] ?? 400);
+        }
+        return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
+    }
+
     //tambah siswa baru 
     public function store(Request $request) {
         $data = $request->validate([
@@ -188,9 +208,10 @@ class StudentController extends BaseController {
             'reason.required' => 'Alasan penolakan wajib diisi',
             'reason.max' => 'Alasan maksimal 500 karakter',
         ]);
-        $result = $this->studentService->rejectStudent($id, $data['reason']);
+        $result = $this->studentService->rejectStudent($id, $data['reason'], auth()->id());
         if (!$result['success']) {
-            return $this->responseError($result['error'], null, 400);
+            $status = $result['code'] ?? 400;
+            return $this->responseError($result['error'], null, $status);
         }
         return $this->responseSuccess(
             $result['student'],
@@ -662,6 +683,18 @@ class StudentController extends BaseController {
             'no_hp'           => $student->no_hp,
             'approval_status' => $student->approval_status,
             'rejection_reason'=> $student->rejection_reason ?? null,
+            'rejection_histories' => $student->relationLoaded('rejectionHistories') ? $student->rejectionHistories->map(function ($history) {
+                return [
+                    'id' => $history->id,
+                    'reason' => $history->reason,
+                    'rejected_by' => $history->rejectedBy ? [
+                        'id' => $history->rejectedBy->id,
+                        'name' => $history->rejectedBy->name,
+                        'email' => $history->rejectedBy->email,
+                    ] : null,
+                    'created_at' => $history->created_at,
+                ];
+            })->values()->toArray() : [],
             'is_suspended'    => (bool) $student->user?->is_suspended,
             'user'            => $student->user ? [
                 'id'    => $student->user->id,

@@ -183,16 +183,16 @@ class GpsTrackController extends BaseController {
         //   2. GPS track masuk   → last_gps_update = now()
         // Ini lebih akurat daripada cek GPS track time karena toggle ON
         // langsung memperpanjang "waktu aktif" meski track belum masuk.
-        // Stale check: GPS dianggap mati jika last_gps_update > 30 detik lalu
-        // (sesuai spesifikasi: timeout 30 detik tanpa heartbeat = anggap offline)
+        // Stale check: GPS dianggap mati jika last_gps_update > 150 detik lalu
+        // (sesuai spesifikasi: toleransi timeout 150 detik karena heartbeat mobile = 90 detik)
         $staleIds = $assignments->filter(function($a) use ($now) {
             if ($a->gps_status !== 'on') return false;
 
             // Tidak ada last_gps_update sama sekali = stale
             if (!$a->last_gps_update) return true;
 
-            // last_gps_update > 30 detik lalu = stale
-            return abs($now->diffInSeconds($a->last_gps_update)) > 30;
+            // last_gps_update > 150 detik lalu = stale
+            return abs($now->diffInSeconds($a->last_gps_update)) > 150;
         })->pluck('id');
 
         if ($staleIds->isNotEmpty()) {
@@ -372,11 +372,11 @@ class GpsTrackController extends BaseController {
                     ->get()
                     ->keyBy('bus_id');
 
-                // ── Stale check: 30 detik tanpa update = offline ─────────
+                // ── Stale check: 150 detik tanpa update = offline ─────────
                 $staleIds = $assignments->filter(function($a) use ($now) {
                     if ($a->gps_status !== 'on') return false;
                     if (!$a->last_gps_update)    return true;
-                    return abs($now->diffInSeconds($a->last_gps_update)) > 30;
+                    return abs($now->diffInSeconds($a->last_gps_update)) > 150;
                 })->pluck('id');
 
                 if ($staleIds->isNotEmpty()) {

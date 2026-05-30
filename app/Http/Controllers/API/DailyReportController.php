@@ -9,13 +9,16 @@ use App\Models\Attendance;
 use App\Constants\AppMessages;
 use Illuminate\Http\Request;
 
-class DailyReportController extends BaseController {
-    public function __construct() {
+class DailyReportController extends BaseController
+{
+    public function __construct()
+    {
         $this->middleware('auth:api');
     }
 
-    // Driver submit laporan selesai bertugas
-    public function store(Request $request) {
+    // POST submit laporan selesai bertugas oleh driver
+    public function store(Request $request)
+    {
         $data = $request->validate([
             'bus_id'          => 'required|exists:buses,id',
             'tanggal'         => 'required|date_format:Y-m-d',
@@ -28,21 +31,7 @@ class DailyReportController extends BaseController {
             'total_penumpang.required' => 'Total penumpang harus diisi',
         ]);
 
-        // Cegah duplikat laporan di hari yang sama
-        $existing = DailyReport::where('bus_id', $data['bus_id'])
-            ->whereDate('tanggal', $data['tanggal'])
-            ->first();
-
-        if ($existing) {
-            return $this->responseError(
-                'Laporan untuk bus ini pada tanggal ' . $data['tanggal'] . ' sudah ada.',
-                422
-            );
-        }
-
-        $bus = Bus::findOrFail($data['bus_id']);
-
-        // Cari bus_driver aktif hari ini
+        // Cari bus_driver aktif pada tanggal laporan
         $activeBusDriver = BusDriver::where('bus_id', $data['bus_id'])
             ->where('tanggal_mulai', '<=', $data['tanggal'])
             ->where(function ($q) use ($data) {
@@ -53,28 +42,62 @@ class DailyReportController extends BaseController {
             ->orderByDesc('tanggal_mulai')
             ->first();
 
+        // Cek laporan existing di hari yang sama
+        $existing = DailyReport::where('bus_id', $data['bus_id'])
+            ->whereDate('tanggal', $data['tanggal'])
+            ->first();
+
+        $bus = Bus::findOrFail($data['bus_id']);
+
+        // Jumlah penumpang riil dari tabel attendance
+        $actualPassengerCount = Attendance::where('bus_id', $data['bus_id'])
+            ->whereDate('tanggal', $data['tanggal'])
+            ->whereIn('status', ['checked_in', 'checked_out'])
+            ->whereNotNull('waktu_naik')
+            ->count();
+
+        if ($existing) {
+            $existing->update([
+                'total_penumpang' => max((int)$data['total_penumpang'], $existing->total_penumpang, $actualPassengerCount),
+                'catatan_driver'  => $data['catatan_driver'] ?? $existing->catatan_driver,
+                'bus_driver_id'   => $activeBusDriver?->id,
+            ]);
+
+            return $this->responseCreated([
+                'id'              => $existing->id,
+                'bus_id'          => $existing->bus_id,
+                'bus_code'        => $bus->kode_bus,
+                'bus_plate'       => $bus->plat_nomor,
+                'tanggal'         => $existing->tanggal,
+                'total_penumpang' => $existing->total_penumpang,
+                'catatan_driver'  => $existing->catatan_driver,
+                'driver_name'     => $activeBusDriver?->driver?->user?->name ?? '-',
+            ], 'Laporan berhasil diperbarui');
+        }
+
         $report = DailyReport::create([
             'bus_id'          => $data['bus_id'],
             'tanggal'         => $data['tanggal'],
-            'total_penumpang' => $data['total_penumpang'],
+            'total_penumpang' => max((int)$data['total_penumpang'], $actualPassengerCount),
             'catatan_driver'  => $data['catatan_driver'] ?? null,
             'bus_driver_id'   => $activeBusDriver?->id,
         ]);
 
         return $this->responseCreated([
-            'id'           => $report->id,
-            'bus_id'       => $report->bus_id,
-            'bus_code'     => $bus->kode_bus,
-            'bus_plate'    => $bus->plat_nomor,
-            'tanggal'      => $report->tanggal,
+            'id'              => $report->id,
+            'bus_id'          => $report->bus_id,
+            'bus_code'        => $bus->kode_bus,
+            'bus_plate'       => $bus->plat_nomor,
+            'tanggal'         => $report->tanggal,
             'total_penumpang' => $report->total_penumpang,
             'catatan_driver'  => $report->catatan_driver,
-            'driver_name'  => $activeBusDriver?->driver?->user?->name ?? '-',
+            'driver_name'     => $activeBusDriver?->driver?->user?->name ?? '-',
         ], AppMessages::SUCCESS_CREATED);
     }
 
-    // List laporan
-    public function index(Request $request) {
+    // GET list laporan harian
+    public function index(Request $request)
+    {
         $query = DailyReport::with(['bus', 'busDriver.driver.user']);
 
         if ($request->has('bus_id')) {
@@ -96,8 +119,9 @@ class DailyReportController extends BaseController {
         return $this->responsePaginated($reports, AppMessages::SUCCESS_RETRIEVED);
     }
 
-    // Detail laporan
-    public function show($id) {
+    // GET detail laporan beserta data penumpang
+    public function show($id)
+    {
         $report = DailyReport::with(['bus', 'busDriver.driver.user'])->findOrFail($id);
 
         $attendances = Attendance::where('bus_id', $report->bus_id)
@@ -122,8 +146,9 @@ class DailyReportController extends BaseController {
         ], AppMessages::SUCCESS_DATA_RETRIEVED);
     }
 
-    // Update catatan saja
-    public function update(Request $request, $id) {
+    // PUT/PATCH update catatan & total penumpang
+    public function update(Request $request, $id)
+    {
         $report = DailyReport::findOrFail($id);
         $data   = $request->validate([
             'catatan_driver'  => 'nullable|string|max:1000',
@@ -133,8 +158,9 @@ class DailyReportController extends BaseController {
         return $this->responseSuccess($report, AppMessages::SUCCESS_UPDATED);
     }
 
-    // Hapus laporan
-    public function destroy($id) {
+    // DELETE laporan
+    public function destroy($id)
+    {
         DailyReport::findOrFail($id)->delete();
         return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }

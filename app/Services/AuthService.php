@@ -43,8 +43,8 @@ class AuthService {
                 return ['error' => 'Akun Anda masih menunggu persetujuan admin'];
             }
         }
-        // Generate device_id from userAgent and IP hash
-        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        // Generate device_id from userAgent and IP hash, including user ID to prevent clashing
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
         
         // Determine max devices based on role
         $maxDevices = $user->role === 'admin' ? 2 : 1;
@@ -198,6 +198,52 @@ class AuthService {
     public function registerStudent($data) {
         try {
             return DB::transaction(function () use ($data) {
+                $existingUser = User::where('email', $data['email'])
+                    ->where('role', 'siswa')
+                    ->with('student')
+                    ->first();
+
+                if ($existingUser) {
+                    $student = $existingUser->student;
+                    if (!$student) {
+                        return ['success' => false, 'error' => 'Akun siswa tidak valid'];
+                    }
+                    if ($student->approval_status !== 'rejected') {
+                        return ['success' => false, 'error' => 'Email sudah terdaftar'];
+                    }
+
+                    // Pastikan NIS tidak bentrok dengan siswa lain.
+                    $duplicateNis = Student::where('nis', $data['nis'])
+                        ->where('id', '!=', $student->id)
+                        ->exists();
+                    if ($duplicateNis) {
+                        return ['success' => false, 'error' => 'NIS sudah terdaftar'];
+                    }
+
+                    $existingUser->update([
+                        'name'     => $data['name'],
+                        'password' => Hash::make($data['password']),
+                    ]);
+
+                    // Preserve previous rejection_reason in `students` table
+                    // so historical reason remains available even after reapply.
+                    $student->update([
+                        'nis'             => $data['nis'],
+                        'sekolah'         => $data['sekolah'],
+                        'kelas'           => $data['kelas'] ?? 'Belum ditentukan',
+                        'alamat'          => $data['alamat'],
+                        'no_hp'           => $data['no_hp'],
+                        'approval_status' => 'pending',
+                    ]);
+
+                    return [
+                        'success' => true,
+                        'token'   => $existingUser->api_token,
+                        'user'    => $existingUser->fresh(),
+                        'student' => $student->fresh(),
+                    ];
+                }
+
                 $user    = $this->createUser('siswa', $data);
                 $student = Student::create([
                     'user_id' => $user->id,
@@ -229,8 +275,8 @@ class AuthService {
             return false;
         }
         
-        // Generate device_id from userAgent and IP hash
-        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        // Generate device_id from userAgent and IP hash, including user ID to prevent clashing
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
         
         // Delete specific device session
         DeviceSession::where('user_id', $user->id)
@@ -272,8 +318,8 @@ class AuthService {
     }
 
     public function refreshUserToken($user, $ipAddress, $userAgent) {
-        // Generate device_id dari userAgent dan IP
-        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        // Generate device_id dari userAgent dan IP, termasuk user ID untuk mencegah tabrakan session
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
         
         // Cari device session yang ada
         $deviceSession = DeviceSession::where('device_id', $deviceId)

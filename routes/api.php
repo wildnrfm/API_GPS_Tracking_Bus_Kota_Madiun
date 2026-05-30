@@ -89,11 +89,14 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
     // students
     Route::get('students', [StudentController::class, 'index']);
     Route::get('students/pending', [StudentController::class, 'pending']);
+    Route::get('student-rejection-histories', [StudentController::class, 'rejectionHistoryList']);
+    Route::delete('student-rejection-histories/{id}', [StudentController::class, 'destroyRejectionHistory']);
     Route::get('students/{id}', [StudentController::class, 'show']);
     Route::post('students', [StudentController::class, 'store']);
     Route::put('students/{id}', [StudentController::class, 'update']);
     Route::post('students/{id}/approve', [StudentController::class, 'approve']);
     Route::post('students/{id}/reject', [StudentController::class, 'reject']);
+    Route::get('students/{id}/rejection-histories', [StudentController::class, 'rejectionHistories']);
     Route::post('students/{id}/suspend', [StudentController::class, 'suspend']);
     Route::post('students/{id}/unsuspend', [StudentController::class, 'unsuspend']);
     Route::delete('students/{id}', [StudentController::class, 'destroy']);

@@ -32,15 +32,23 @@ class ReportController extends BaseController {
             'tanggal.required' => 'Tanggal laporan harus diisi (format: YYYY-MM-DD)',
             'tanggal.date_format' => 'Format tanggal tidak valid (gunakan: YYYY-MM-DD)',
         ]);
-        $tanggal = $request->input('tanggal');
+        $tanggal  = $request->input('tanggal');
         $cacheKey = 'admin_report_' . $tanggal;
-        $reportData = Cache::remember($cacheKey, 3600, function () use ($tanggal) {
+
+        // Jika laporan hari ini, jangan cache (data masih bisa berubah)
+        // Jika laporan hari lalu, cache 1 jam
+        $isToday = ($tanggal === now()->toDateString());
+        if ($isToday) {
+            Cache::forget($cacheKey);
+        }
+        $cacheTtl  = $isToday ? 60 : 3600; // 1 menit untuk hari ini, 1 jam untuk hari lalu
+        $reportData = Cache::remember($cacheKey, $cacheTtl, function () use ($tanggal) {
             return $this->reportGenerator->generateAdminReport($tanggal);
         });
         LogActivityAsync::dispatch('report_generated', $request->user()->id, [
-            'model' => 'Report',
+            'model'       => 'Report',
             'description' => 'Admin menghasilkan laporan untuk tanggal: ' . $tanggal,
-            'status' => 'success',
+            'status'      => 'success',
         ]);
         return $this->responseSuccess($reportData, 'Laporan berhasil dihasilkan');
     }

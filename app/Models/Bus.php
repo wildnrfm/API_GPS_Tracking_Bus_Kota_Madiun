@@ -27,7 +27,7 @@ class Bus extends Model {
     }
 
     public function drivers() {
-        return $this->belongsToMany(Driver::class, 'bus_driver')->withPivot('tanggal_mulai', 'tanggal_selesai')->withTimestamps();
+        return $this->belongsToMany(Driver::class, 'bus_driver')->withPivot('id', 'tanggal_mulai', 'tanggal_selesai')->withTimestamps();
     }
 
     public function gpsTracks() {
