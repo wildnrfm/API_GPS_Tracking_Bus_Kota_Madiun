@@ -29,6 +29,13 @@ class ReportGeneratorService {
                 'total_penumpang' => $report->total_penumpang,
                 'catatan_driver'  => $report->catatan_driver,
                 'bus'             => $report->bus,
+                'tanggal'         => $report->tanggal,
+                // Waktu driver klik "Selesai Bertugas" (updated_at karena bisa di-update ulang)
+                'waktu_laporan'   => $report->updated_at
+                    ? \Carbon\Carbon::parse($report->updated_at)
+                        ->setTimezone(config('app.timezone'))
+                        ->format('H:i')
+                    : null,
             ];
         });
 

@@ -11,11 +11,25 @@ class DriverService {
     use CreatesUser;
 
     public function getAllDrivers($perPage = 15) {
-        return Driver::with('user')->paginate($perPage);
+        $today = now()->toDateString();
+        return Driver::with(['user', 'buses' => function ($query) use ($today) {
+            $query->wherePivot('tanggal_mulai', '<=', $today)
+                  ->where(function ($q) use ($today) {
+                      $q->whereNull('bus_driver.tanggal_selesai')
+                        ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
+                  });
+        }])->paginate($perPage);
     }
 
     public function getDriverById($id) {
-        return Driver::with('user')->findOrFail($id);
+        $today = now()->toDateString();
+        return Driver::with(['user', 'buses' => function ($query) use ($today) {
+            $query->wherePivot('tanggal_mulai', '<=', $today)
+                  ->where(function ($q) use ($today) {
+                      $q->whereNull('bus_driver.tanggal_selesai')
+                        ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
+                  });
+        }])->findOrFail($id);
     }
 
     public function createDriver($data) {
@@ -46,8 +60,11 @@ class DriverService {
 
     public function updateDriver($id, $data) {
         try {
-            // Cari by user_id karena Flutter kirim users.id
-            $driver = Driver::where('user_id', $id)->firstOrFail();
+            // Cari by user_id karena Flutter kirim users.id, fallback ke primary key id
+            $driver = Driver::where('user_id', $id)->first();
+            if (!$driver) {
+                $driver = Driver::findOrFail($id);
+            }
             $this->updateUserAndProfile($driver->user, $driver, $data);
             return [
                 'success' => true,
@@ -61,10 +78,13 @@ class DriverService {
 
     public function deleteDriver($id) {
         try {
-            // Cari by user_id karena Flutter kirim users.id
+            // Cari by user_id karena Flutter kirim users.id, fallback ke primary key id
             // DB cascade (cascadeOnDelete pada FK drivers.user_id) akan hapus driver otomatis
             // saat user dihapus, tapi kita tetap hapus driver dulu agar Observer berjalan
-            $driver = Driver::where('user_id', $id)->firstOrFail();
+            $driver = Driver::where('user_id', $id)->first();
+            if (!$driver) {
+                $driver = Driver::findOrFail($id);
+            }
             $userId = $driver->user_id;
             $driver->delete();
             if ($userId) {

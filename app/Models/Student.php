@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
+use App\Models\StudentRejectionHistory;
 
 class Student extends Model {
     use HasFactory;
@@ -16,6 +17,7 @@ class Student extends Model {
         'alamat',
         'no_hp',
         'approval_status',
+        'rejection_reason',
         'status',
     ];
 
@@ -52,5 +54,9 @@ class Student extends Model {
 
     public function attendance() {
         return $this->hasMany(Attendance::class);
+    }
+
+    public function rejectionHistories() {
+        return $this->hasMany(StudentRejectionHistory::class);
     }
 }

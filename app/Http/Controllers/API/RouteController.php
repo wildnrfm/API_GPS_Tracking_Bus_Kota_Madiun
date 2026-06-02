@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Constants\AppMessages;
+use App\Models\Halte;
 use App\Models\Route;
 use App\Models\RouteHalte;
 use App\Models\RoutePolyline;
@@ -101,18 +102,57 @@ class RouteController extends BaseController
         $this->authorizeAdmin($request);
         $data = $request->validate([
             'bus_id'    => 'required|exists:buses,id',
-            'nama_rute' => 'required|string|max:150',
+            'nama_rute' => 'sometimes|nullable|string|max:150',
+            'haltes'    => 'sometimes|array',
+            'haltes.*.halte_id' => 'required_with:haltes|integer|exists:haltes,id',
+            'haltes.*.urutan'   => 'required_with:haltes|integer|min:1',
         ], [
             'bus_id.required'    => 'Bus wajib dipilih',
             'bus_id.exists'      => 'Bus tidak ditemukan',
-            'nama_rute.required' => 'Nama rute wajib diisi',
+            'nama_rute.string'   => 'Nama rute harus berupa teks',
+            'nama_rute.max'      => 'Nama rute maksimal 150 karakter',
+            'haltes.array'       => 'Data halte tidak valid',
         ]);
 
         if (Route::where('bus_id', $data['bus_id'])->exists()) {
             return $this->responseError('Bus ini sudah memiliki rute.', null, 422);
         }
 
-        $route = Route::create($data);
+        if (empty($data['nama_rute']) && !empty($data['haltes'])) {
+            $first = $data['haltes'][0]['halte_id'] ?? null;
+            $last = end($data['haltes'])['halte_id'] ?? null;
+            if ($first && $last && $first !== $last) {
+                $firstHalte = Halte::find($first);
+                $lastHalte = Halte::find($last);
+                if ($firstHalte && $lastHalte) {
+                    $data['nama_rute'] = $firstHalte->nama_halte . ' → ' . $lastHalte->nama_halte;
+                }
+            }
+        }
+
+        DB::transaction(function () use (&$route, $data) {
+            $route = Route::create([
+                'bus_id'    => $data['bus_id'],
+                'nama_rute' => $data['nama_rute'] ?? null,
+            ]);
+
+            if (!empty($data['haltes'])) {
+                $halteRows = [];
+                foreach ($data['haltes'] as $halte) {
+                    $halteRows[] = [
+                        'route_id'   => $route->id,
+                        'halte_id'   => $halte['halte_id'],
+                        'urutan'     => $halte['urutan'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+                if ($halteRows) {
+                    RouteHalte::insert($halteRows);
+                }
+            }
+        });
+
         $route->load(['bus:id,kode_bus,plat_nomor', 'routeHaltes.halte', 'polylines']);
         return $this->responseCreated($this->formatRoute($route), AppMessages::SUCCESS_CREATED);
     }
@@ -124,6 +164,9 @@ class RouteController extends BaseController
         $data = $request->validate([
             'nama_rute' => 'sometimes|string|max:150',
             'bus_id'    => 'sometimes|exists:buses,id',
+            'haltes'    => 'sometimes|array',
+            'haltes.*.halte_id' => 'required_with:haltes|integer|exists:haltes,id',
+            'haltes.*.urutan'   => 'required_with:haltes|integer|min:1',
         ]);
 
         if (isset($data['bus_id']) && $data['bus_id'] != $route->bus_id) {
@@ -132,7 +175,27 @@ class RouteController extends BaseController
             }
         }
 
-        $route->update($data);
+        DB::transaction(function () use ($route, $data) {
+            $route->update(array_filter($data, fn($value, $key) => in_array($key, ['nama_rute', 'bus_id'], true), ARRAY_FILTER_USE_BOTH));
+
+            if (array_key_exists('haltes', $data)) {
+                RouteHalte::where('route_id', $route->id)->delete();
+                if (!empty($data['haltes'])) {
+                    $halteRows = [];
+                    foreach ($data['haltes'] as $halte) {
+                        $halteRows[] = [
+                            'route_id'   => $route->id,
+                            'halte_id'   => $halte['halte_id'],
+                            'urutan'     => $halte['urutan'],
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ];
+                    }
+                    RouteHalte::insert($halteRows);
+                }
+            }
+        });
+
         $route->load(['bus:id,kode_bus,plat_nomor', 'routeHaltes.halte', 'polylines']);
         return $this->responseUpdated($this->formatRoute($route), AppMessages::SUCCESS_UPDATED);
     }

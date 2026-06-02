@@ -26,6 +26,9 @@ class ActivityLog extends Model {
     }
 
     public static function log($action, $user_id = null, $data = []) {
+        if ($user_id !== null && !\App\Models\User::where('id', $user_id)->exists()) {
+            $user_id = null;
+        }
         return self::create([
             'user_id' => $user_id,
             'action' => $action,

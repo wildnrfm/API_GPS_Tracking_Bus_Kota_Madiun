@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Bus;
 use App\Models\BusDriver;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class BusService {
     public function getAllBuses() {
@@ -202,45 +203,135 @@ class BusService {
             ->where(function ($q) use ($today) {
                 $q->whereNull('bus_driver.tanggal_selesai')
                   ->orWhere('bus_driver.tanggal_selesai', '>=', $today);
-            })->with('user')->first();
+            })->withPivot('id', 'tanggal_mulai', 'tanggal_selesai', 'gps_status', 'last_gps_update')
+              ->with('user')->first();
+    }
+
+    public function cleanupDuplicateActiveAssignments($dryRun = false) {
+        $today = now()->toDateString();
+
+        $duplicateDriverCount = DB::selectOne(
+            "SELECT COUNT(*) AS count FROM (SELECT driver_id FROM bus_driver WHERE (tanggal_selesai IS NULL OR tanggal_selesai >= ?) GROUP BY driver_id HAVING COUNT(*) > 1) x",
+            [$today]
+        )->count;
+
+        $duplicateBusCount = DB::selectOne(
+            "SELECT COUNT(*) AS count FROM (SELECT bus_id FROM bus_driver WHERE (tanggal_selesai IS NULL OR tanggal_selesai >= ?) GROUP BY bus_id HAVING COUNT(*) > 1) x",
+            [$today]
+        )->count;
+
+        if ($dryRun) {
+            return [
+                'success' => true,
+                'dry_run' => true,
+                'duplicate_driver_groups' => $duplicateDriverCount,
+                'duplicate_bus_groups' => $duplicateBusCount,
+                'updated_rows' => 0,
+            ];
+        }
+
+        $yesterday = now()->subDay()->toDateString();
+
+        return DB::transaction(function () use ($today, $yesterday, $duplicateDriverCount, $duplicateBusCount) {
+            $updatedDriver = DB::update(
+                "UPDATE bus_driver bd
+                 JOIN (
+                     SELECT driver_id, MAX(id) AS keep_id
+                     FROM bus_driver
+                     WHERE (tanggal_selesai IS NULL OR tanggal_selesai >= ?)
+                     GROUP BY driver_id
+                     HAVING COUNT(*) > 1
+                 ) dup ON bd.driver_id = dup.driver_id
+                 SET bd.tanggal_selesai = ?
+                 WHERE bd.id <> dup.keep_id
+                   AND (bd.tanggal_selesai IS NULL OR bd.tanggal_selesai >= ?)",
+                [$today, $yesterday, $today]
+            );
+
+            $updatedBus = DB::update(
+                "UPDATE bus_driver bd
+                 JOIN (
+                     SELECT bus_id, MAX(id) AS keep_id
+                     FROM bus_driver
+                     WHERE (tanggal_selesai IS NULL OR tanggal_selesai >= ?)
+                     GROUP BY bus_id
+                     HAVING COUNT(*) > 1
+                 ) dup ON bd.bus_id = dup.bus_id
+                 SET bd.tanggal_selesai = ?
+                 WHERE bd.id <> dup.keep_id
+                   AND (bd.tanggal_selesai IS NULL OR bd.tanggal_selesai >= ?)",
+                [$today, $yesterday, $today]
+            );
+
+            return [
+                'success' => true,
+                'dry_run' => false,
+                'duplicate_driver_groups' => $duplicateDriverCount,
+                'duplicate_bus_groups' => $duplicateBusCount,
+                'updated_rows' => $updatedDriver + $updatedBus,
+            ];
+        });
     }
 
     public function assignDriverToBus($busId, $driverId, $tanggalMulai, $tanggalSelesai = null) {
         try {
             Bus::findOrFail($busId);
 
-            // Auto-end semua assignment aktif driver ini di bus LAIN
-            BusDriver::where('driver_id', $driverId)
-                ->where('bus_id', '!=', $busId)
-                ->whereNull('tanggal_selesai')
-                ->update(['tanggal_selesai' => now()->toDateString()]);
+            return DB::transaction(function () use ($busId, $driverId, $tanggalMulai, $tanggalSelesai) {
+                $today = now()->toDateString();
 
-            // Auto-end assignment driver LAIN yang aktif di bus ini
-            BusDriver::where('bus_id', $busId)
-                ->where('driver_id', '!=', $driverId)
-                ->whereNull('tanggal_selesai')
-                ->update(['tanggal_selesai' => now()->toDateString()]);
+                $endDate = Carbon::parse($tanggalMulai)->subDay()->toDateString();
 
-            // Jika driver ini sudah punya assignment aktif di bus yang sama — reuse, tidak perlu buat baru
-            $existing = BusDriver::where('driver_id', $driverId)
-                ->where('bus_id', $busId)
-                ->whereNull('tanggal_selesai')
-                ->first();
+                // Auto-end semua assignment aktif driver ini di bus LAIN
+                BusDriver::where('driver_id', $driverId)
+                    ->where('bus_id', '!=', $busId)
+                    ->active()
+                    ->update(['tanggal_selesai' => $endDate]);
 
-            if ($existing) {
-                return ['success' => true, 'assignment' => $existing->load('driver.user')];
-            }
+                // Auto-end assignment driver LAIN yang aktif di bus ini
+                BusDriver::where('bus_id', $busId)
+                    ->where('driver_id', '!=', $driverId)
+                    ->active()
+                    ->update(['tanggal_selesai' => $endDate]);
 
-            // Buat assignment baru
-            $busDriver = BusDriver::create([
-                'bus_id'          => $busId,
-                'driver_id'       => $driverId,
-                'tanggal_mulai'   => $tanggalMulai,
-                'tanggal_selesai' => $tanggalSelesai,
-            ]);
+                $existing = BusDriver::where('driver_id', $driverId)
+                    ->where('bus_id', $busId)
+                    ->active()
+                    ->orderByDesc('id')
+                    ->first();
 
-            return ['success' => true, 'assignment' => $busDriver->load('driver.user')];
+                if ($existing) {
+                    // Tutup duplikat aktif pada pasangan bus-driver yang sama
+                    BusDriver::where('driver_id', $driverId)
+                        ->where('bus_id', $busId)
+                        ->active()
+                        ->where('id', '<>', $existing->id)
+                        ->update(['tanggal_selesai' => $endDate]);
 
+                    $updated = false;
+                    if ($existing->tanggal_mulai !== $tanggalMulai) {
+                        $existing->tanggal_mulai = $tanggalMulai;
+                        $updated = true;
+                    }
+                    if ($tanggalSelesai !== null && $existing->tanggal_selesai !== $tanggalSelesai) {
+                        $existing->tanggal_selesai = $tanggalSelesai;
+                        $updated = true;
+                    }
+                    if ($updated) {
+                        $existing->save();
+                    }
+                    return ['success' => true, 'assignment' => $existing->load('driver.user')];
+                }
+
+                $busDriver = BusDriver::create([
+                    'bus_id'          => $busId,
+                    'driver_id'       => $driverId,
+                    'tanggal_mulai'   => $tanggalMulai,
+                    'tanggal_selesai' => $tanggalSelesai,
+                ]);
+
+                return ['success' => true, 'assignment' => $busDriver->load('driver.user')];
+            });
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Gagal assign driver: ' . $e->getMessage()];
         }

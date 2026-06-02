@@ -12,13 +12,17 @@ trait CreatesUser {
      * Dipakai oleh AuthService, StudentService, DriverService, UserService.
      */
     protected function createUser(string $role, array $data): User {
-        return User::create([
+        $fields = [
             'name'      => $data['name'],
             'email'     => $data['email'],
             'password'  => Hash::make($data['password']),
             'role'      => $role,
             'api_token' => Str::random(60),
-        ]);
+        ];
+        if (isset($data['photo'])) {
+            $fields['photo'] = $data['photo'];
+        }
+        return User::create($fields);
     }
 
     /**
@@ -38,7 +42,7 @@ trait CreatesUser {
     }
 
     /**
-     * Update field user (name, email, password) dan field profile (siswa/driver).
+     * Update field user (name, email, password, photo) dan field profile (siswa/driver).
      * Dipakai oleh StudentService dan DriverService.
      */
     protected function updateUserAndProfile($user, $profile, array $data): void {
@@ -46,7 +50,7 @@ trait CreatesUser {
         $profileFields = [];
 
         foreach ($data as $key => $value) {
-            if (in_array($key, ['name', 'email', 'password'])) {
+            if (in_array($key, ['name', 'email', 'password', 'photo'])) {
                 $userFields[$key] = $value;
             } else {
                 $profileFields[$key] = $value;

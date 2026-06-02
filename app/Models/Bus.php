@@ -17,17 +17,17 @@ class Bus extends Model {
     protected $appends = ['photo_url'];
 
     public function getPhotoUrlAttribute(): ?string {
-        if (!$this->photo) return null;
-        // Foto disimpan di public/images/buses/ (tanpa symlink storage)
-        // URL: http://host/images/buses/xxx.jpg
-        if (str_starts_with($this->photo, 'http')) {
-            return $this->photo;
+        if (!$this->photo) {
+            return null;
         }
-        return asset($this->photo);
+
+        $photoPath = '/' . ltrim($this->photo, '/');
+        $host = request()->getSchemeAndHttpHost() ?: rtrim(config('app.url'), '/');
+        return $host . $photoPath;
     }
 
     public function drivers() {
-        return $this->belongsToMany(Driver::class, 'bus_driver')->withPivot('tanggal_mulai', 'tanggal_selesai')->withTimestamps();
+        return $this->belongsToMany(Driver::class, 'bus_driver')->withPivot('id', 'tanggal_mulai', 'tanggal_selesai')->withTimestamps();
     }
 
     public function gpsTracks() {

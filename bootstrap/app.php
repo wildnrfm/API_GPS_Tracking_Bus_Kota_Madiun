@@ -17,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))->withRouting(
     commands: __DIR__.'/../routes/console.php',
     health: '/up',
 )->withMiddleware(function (Middleware $middleware): void {
+    // CORS ditangani HANYA di public/index.php (level PHP native).
+    // Hapus HandleCors bawaan Laravel agar tidak duplikat CORS headers.
+    $middleware->remove(\Illuminate\Http\Middleware\HandleCors::class);
     $middleware->prepend(SetSecurityHeaders::class);
     $middleware->prepend(SanitizeInput::class);
     $middleware->alias([

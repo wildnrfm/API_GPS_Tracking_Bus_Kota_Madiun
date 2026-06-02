@@ -81,9 +81,15 @@ class GpsTrackController extends BaseController {
             'recorded_at'      => now(), // selalu server time untuk konsistensi sorting
         ]);
 
-        // Update last_gps_update agar auto-reset 5 menit tidak salah terpicu
-        // saat driver aktif tapi tidak bergerak (distanceFilter)
-        $activeAssignment->update(['last_gps_update' => now()]);
+        // Update last_gps_update dan set gps_status='on'.
+        // Jika GPS data masuk = GPS sedang aktif. Ini menangani driver yang langsung
+        // kirim posisi tanpa memanggil toggle endpoint terlebih dulu.
+        // Ketika driver toggle OFF, mobile langsung berhenti kirim track, sehingga
+        // toggle('off') bisa set gps_status='off' tanpa teroverride lagi.
+        $activeAssignment->update([
+            'last_gps_update' => now(),
+            'gps_status'      => 'on',
+        ]);
 
         OfflineDataService::logDataSync(
             'gps_track',
@@ -126,7 +132,7 @@ class GpsTrackController extends BaseController {
         $now   = now();
 
         // Load semua bus sekaligus (hindari N+1)
-        $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
+        $buses = Bus::select('id', 'kode_bus', 'plat_nomor', 'photo')->get();
         $busIds = $buses->pluck('id');
 
         // Load GPS terbaru per bus — dari 3 jam terakhir (bukan hanya hari ini)
@@ -168,17 +174,25 @@ class GpsTrackController extends BaseController {
             ->keyBy('bus_id');
 
         // Auto-reset GPS yang stale:
-        // Jika gps_status ON tapi tidak ada GPS record (atau record >10 menit lalu)
-        // Gunakan gpsRecords (dari 3 jam terakhir) sebagai sumber kebenaran
-        $staleIds = $assignments->filter(function($a) use ($now, $gpsRecords) {
+        // Jika gps_status ON tapi tidak ada GPS record BARU (> 10 menit lalu)
+        // PENTING: gunakan grace period 2 menit dari last_gps_update agar driver
+        // yang baru toggle ON tidak langsung di-reset sebelum GPS track pertama masuk.
+        // Stale check: GPS dianggap mati jika last_gps_update > 10 menit lalu.
+        // last_gps_update diupdate saat:
+        //   1. Driver toggle ON  → last_gps_update = now()
+        //   2. GPS track masuk   → last_gps_update = now()
+        // Ini lebih akurat daripada cek GPS track time karena toggle ON
+        // langsung memperpanjang "waktu aktif" meski track belum masuk.
+        // Stale check: GPS dianggap mati jika last_gps_update > 150 detik lalu
+        // (sesuai spesifikasi: toleransi timeout 150 detik karena heartbeat mobile = 90 detik)
+        $staleIds = $assignments->filter(function($a) use ($now) {
             if ($a->gps_status !== 'on') return false;
-            
-            $record = $gpsRecords->get($a->bus_id);
-            // Tidak ada GPS record terbaru = stale
-            if (!$record) return true;
-            
-            // Ada record tapi >10 menit = stale
-            return $now->diffInMinutes($record->recorded_at) > 10;
+
+            // Tidak ada last_gps_update sama sekali = stale
+            if (!$a->last_gps_update) return true;
+
+            // last_gps_update > 150 detik lalu = stale
+            return abs($now->diffInSeconds($a->last_gps_update)) > 150;
         })->pluck('id');
 
         if ($staleIds->isNotEmpty()) {
@@ -196,10 +210,10 @@ class GpsTrackController extends BaseController {
                 'bus_id'          => $bus->id,
                 'bus_code'        => $bus->kode_bus,
                 'bus_plate'       => $bus->plat_nomor,
+                'photo_url'       => $bus->photo_url,
                 'gps_status'      => $gpsStatus,
                 'last_gps_update' => $assignment?->last_gps_update,
-                // Kirim current_position HANYA jika GPS sedang aktif (on)
-                // Jika off, kirim null agar Flutter tidak tampilkan marker
+                // current_position hanya jika GPS aktif (on)
                 'current_position' => ($gpsStatus === 'on' && $gps) ? [
                     'latitude'    => (float) $gps->latitude,
                     'longitude'   => (float) $gps->longitude,
@@ -269,50 +283,137 @@ class GpsTrackController extends BaseController {
     }
 
     /**
-     * SSE — stream posisi GPS semua bus secara real-time ke admin.
-     * Admin subscribe sekali, server kirim update setiap 3 detik.
+     * SSE — stream status GPS semua bus secara real-time ke admin.
+     * Admin subscribe sekali, server push update setiap 2 detik.
      * Tidak butuh WebSocket / Pusher / Redis.
+     *
+     * Payload tiap event:
+     *   event: gps_update
+     *   data: [{bus_id, bus_code, bus_plate, gps_status, driver_name, driver_id, last_gps_update, position}]
+     *
+     * Heartbeat tiap 15 detik agar koneksi tidak di-close proxy/browser:
+     *   event: ping
+     *   data: {ts}
      */
     public function stream(Request $request) {
+        // Support token via query param (?token=...) karena EventSource tidak
+        // mendukung custom Authorization header
         $user = $request->user();
+        if (!$user) {
+            // Coba autentikasi via query param token (untuk EventSource)
+            $token = $request->query('token');
+            if ($token) {
+                try {
+                    $user = auth('api')->setToken($token)->user();
+                } catch (\Exception $e) {
+                    $user = null;
+                }
+            }
+        }
         if (!$user || $user->role !== 'admin') {
             abort(403, 'Forbidden');
         }
 
         return response()->stream(function () {
-            $maxIterations = 200; // ~10 menit maksimum
+            $maxIterations = 1500; // ~50 menit maksimum (1500 × 2s)
+            $heartbeatInterval = 15; // heartbeat tiap 15 iterasi (× 2s = 30s)
             $i = 0;
+
+            // Rekam status GPS sebelumnya untuk deteksi perubahan
+            $prevStatus = [];
+
             while ($i < $maxIterations) {
                 if (connection_aborted()) break;
 
-                $buses = Bus::select('id', 'kode_bus', 'plat_nomor')->get();
-                $payload = [];
-                foreach ($buses as $bus) {
-                    $today = now()->toDateString();
-                    $gps = GpsTrack::select('latitude', 'longitude', 'speed', 'recorded_at')
-                        ->where('bus_id', $bus->id)
-                        ->whereDate('recorded_at', $today)
-                        ->where('latitude', '!=', 0)
-                        ->where('longitude', '!=', 0)
-                        ->orderBy('recorded_at', 'desc')
-                        ->first();
+                $today        = now()->toDateString();
+                $threeHoursAgo = now()->subHours(3);
+                $now          = now();
 
-                    $activeDriver = BusDriver::select('gps_status', 'last_gps_update', 'driver_id')
-                        ->where('bus_id', $bus->id)
-                        ->where(function ($q) {
-                            $q->whereNull('tanggal_selesai')
-                              ->orWhere('tanggal_selesai', '>=', now()->toDateString());
-                        })
-                        ->with('driver:id,user_id', 'driver.user:id,name')
-                        ->first();
+                // ── Kirim heartbeat ping ──────────────────────────────────
+                if ($i % $heartbeatInterval === 0 && $i > 0) {
+                    echo "event: ping\n";
+                    echo "data: " . json_encode(['ts' => $now->toISOString()]) . "\n\n";
+                    if (ob_get_level() > 0) ob_flush();
+                    flush();
+                }
+
+                // ── Load semua bus (satu query) ───────────────────────────
+                $buses  = Bus::select('id', 'kode_bus', 'plat_nomor', 'photo')->get();
+                $busIds = $buses->pluck('id');
+
+                // ── GPS terbaru per bus ───────────────────────────────────
+                $latestGpsMap = GpsTrack::select('bus_id', DB::raw('MAX(recorded_at) as max_recorded'))
+                    ->whereIn('bus_id', $busIds)
+                    ->where('recorded_at', '>=', $threeHoursAgo)
+                    ->where('latitude', '!=', 0)
+                    ->where('longitude', '!=', 0)
+                    ->groupBy('bus_id')
+                    ->get()
+                    ->pluck('max_recorded', 'bus_id');
+
+                $gpsRecords = collect();
+                foreach ($latestGpsMap as $busId => $maxRecorded) {
+                    $record = GpsTrack::where('bus_id', $busId)
+                        ->where('recorded_at', $maxRecorded)
+                        ->first(['bus_id', 'latitude', 'longitude', 'speed', 'recorded_at']);
+                    if ($record) $gpsRecords->put($busId, $record);
+                }
+
+                // ── Assignment aktif per bus ──────────────────────────────
+                $assignments = BusDriver::select('id', 'bus_id', 'driver_id', 'gps_status', 'last_gps_update')
+                    ->whereIn('bus_id', $busIds)
+                    ->where(function($q) use ($today) {
+                        $q->whereNull('tanggal_selesai')
+                          ->orWhere('tanggal_selesai', '>=', $today);
+                    })
+                    ->with('driver:id,user_id', 'driver.user:id,name')
+                    ->orderByRaw("CASE WHEN gps_status = 'on' THEN 0 ELSE 1 END")
+                    ->orderBy('last_gps_update', 'desc')
+                    ->get()
+                    ->keyBy('bus_id');
+
+                // ── Stale check: 150 detik tanpa update = offline ─────────
+                $staleIds = $assignments->filter(function($a) use ($now) {
+                    if ($a->gps_status !== 'on') return false;
+                    if (!$a->last_gps_update)    return true;
+                    return abs($now->diffInSeconds($a->last_gps_update)) > 150;
+                })->pluck('id');
+
+                if ($staleIds->isNotEmpty()) {
+                    BusDriver::whereIn('id', $staleIds)->update(['gps_status' => 'off']);
+                    $assignments->whereIn('id', $staleIds->all())
+                        ->each(fn($a) => $a->gps_status = 'off');
+                }
+
+                // ── Build payload ─────────────────────────────────────────
+                $payload = [];
+                $hasChange = false;
+
+                foreach ($buses as $bus) {
+                    $gps        = $gpsRecords->get($bus->id);
+                    $assignment = $assignments->get($bus->id);
+                    $gpsStatus  = $assignment?->gps_status ?? 'off';
+                    $driverName = $assignment?->driver?->user?->name ?? '';
+                    $driverId   = $assignment?->driver_id ?? null;
+
+                    // Deteksi perubahan status GPS
+                    $prevKey = $bus->id . '_status';
+                    if (!isset($prevStatus[$prevKey]) || $prevStatus[$prevKey] !== $gpsStatus) {
+                        $hasChange = true;
+                        $prevStatus[$prevKey] = $gpsStatus;
+                    }
 
                     $payload[] = [
-                        'bus_id'      => $bus->id,
-                        'bus_code'    => $bus->kode_bus,
-                        'bus_plate'   => $bus->plat_nomor,
-                        'gps_status'  => $activeDriver?->gps_status ?? 'off',
-                        'driver_name' => $activeDriver?->driver?->user?->name ?? '',
-                        'position'    => $gps ? [
+                        'bus_id'          => $bus->id,
+                        'bus_code'        => $bus->kode_bus,
+                        'bus_plate'       => $bus->plat_nomor,
+                        'photo_url'       => $bus->photo_url,
+                        'gps_status'      => $gpsStatus,
+                        'driver_name'     => $driverName,
+                        'driver_id'       => $driverId,
+                        'last_gps_update' => $assignment?->last_gps_update
+                            ? (string) $assignment->last_gps_update : null,
+                        'position' => ($gpsStatus === 'on' && $gps) ? [
                             'latitude'    => (float) $gps->latitude,
                             'longitude'   => (float) $gps->longitude,
                             'speed'       => (float) $gps->speed,
@@ -321,19 +422,29 @@ class GpsTrackController extends BaseController {
                     ];
                 }
 
-                echo "data: " . json_encode($payload) . "\n\n";
+                // Kirim event gps_update (selalu, agar admin punya data terkini)
+                echo "event: gps_update\n";
+                echo "data: " . json_encode([
+                    'type'       => 'gps_update',
+                    'has_change' => $hasChange,
+                    'buses'      => $payload,
+                    'ts'         => $now->toISOString(),
+                ]) . "\n\n";
+
                 if (ob_get_level() > 0) ob_flush();
                 flush();
 
-                sleep(3);
+                sleep(2);
                 $i++;
             }
+
+            echo "event: close\n";
             echo "data: " . json_encode(['type' => 'close']) . "\n\n";
             if (ob_get_level() > 0) ob_flush();
             flush();
         }, 200, [
             'Content-Type'                     => 'text/event-stream',
-            'Cache-Control'                    => 'no-cache',
+            'Cache-Control'                    => 'no-cache, no-store, must-revalidate',
             'X-Accel-Buffering'                => 'no',
             'Connection'                       => 'keep-alive',
             'Access-Control-Allow-Origin'      => '*',

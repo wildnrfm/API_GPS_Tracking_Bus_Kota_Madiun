@@ -22,12 +22,12 @@ class StudentController extends BaseController {
         $this->middleware('auth:api');
     }
 
-    //Get semua siswa (dengan info bus & rute)
     public function index(Request $request) {
         // [FIX] Gunakan perPage sangat besar agar semua siswa ter-return dalam 1 halaman.
         // Sebelumnya hardcode 15 → frontend hanya dapat 15 siswa pertama saja.
         $perPage = (int) $request->query('per_page', 1000);
-        $paginator = $this->studentService->getAllStudents($perPage);
+        $approvalStatus = $request->query('approval_status');
+        $paginator = $this->studentService->getAllStudents($perPage, $approvalStatus);
         $paginator->getCollection()->transform(fn($s) => $this->formatStudentWithBus($s));
         return $this->responsePaginated($paginator, AppMessages::SUCCESS_DATA_RETRIEVED);
     }
@@ -36,6 +36,26 @@ class StudentController extends BaseController {
     public function show(Request $request, $id) {
         $student = $this->studentService->getStudentById($id);
         return $this->responseSuccess($this->formatStudentWithBus($student), AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    public function rejectionHistories(Request $request, $id) {
+        $perPage = (int) $request->query('per_page', 50);
+        $histories = $this->studentService->getStudentRejectionHistories($id, $perPage);
+        return $this->responsePaginated($histories, AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    public function rejectionHistoryList(Request $request) {
+        $perPage = (int) $request->query('per_page', 500);
+        $histories = $this->studentService->getAllRejectionHistories($perPage);
+        return $this->responsePaginated($histories, AppMessages::SUCCESS_DATA_RETRIEVED);
+    }
+
+    public function destroyRejectionHistory(Request $request, $id) {
+        $result = $this->studentService->deleteRejectionHistory($id);
+        if (!$result['success']) {
+            return $this->responseError($result['error'], null, $result['code'] ?? 400);
+        }
+        return $this->responseDeleted(AppMessages::SUCCESS_DELETED);
     }
 
     //tambah siswa baru 
@@ -49,7 +69,18 @@ class StudentController extends BaseController {
             'kelas' => 'sometimes|string|max:100',
             'alamat' => 'required|string|max:500',
             'no_hp' => 'required|string|max:15',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $photo    = $request->file('photo');
+            $filename = uniqid('siswa_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/siswa');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/siswa/' . $filename;
+        }
+
         $result = $this->studentService->createStudent($data);
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
@@ -62,60 +93,74 @@ class StudentController extends BaseController {
 
     // Update siswa 
     public function update(Request $request, $id) {
-        $rules    = [];
+        $rules = [];
         $messages = [];
-
-        // Gunakan filled() agar field yang dikirim kosong pun tetap terdeteksi
-        // has() hanya cek keberadaan key, filled() cek ada & tidak kosong/null
         if ($request->has('name')) {
             $rules['name'] = 'required|string|max:255';
             $messages['name.required'] = AppMessages::ERROR_NAME_REQUIRED;
-            $messages['name.max']      = AppMessages::ERROR_NAME_TOO_LONG;
+            $messages['name.max'] = AppMessages::ERROR_NAME_TOO_LONG;
         }
         if ($request->has('email')) {
             $student = Student::findOrFail($id);
             $rules['email'] = ['required', 'email', Rule::unique('users', 'email')->ignore($student->user_id)];
             $messages['email.required'] = AppMessages::ERROR_EMAIL_REQUIRED;
-            $messages['email.email']    = AppMessages::ERROR_EMAIL_INVALID;
-            $messages['email.unique']   = AppMessages::ERROR_EMAIL_TAKEN;
+            $messages['email.email'] = AppMessages::ERROR_EMAIL_INVALID;
+            $messages['email.unique'] = AppMessages::ERROR_EMAIL_TAKEN;
         }
         if ($request->has('password')) {
-            $rules['password']              = 'required|string|min:8|confirmed';
+            $rules['password'] = 'required|string|min:8|confirmed';
             $rules['password_confirmation'] = 'required|string';
-            $messages['password.required']              = AppMessages::ERROR_PASSWORD_REQUIRED;
-            $messages['password.min']                   = AppMessages::ERROR_PASSWORD_WEAK;
-            $messages['password.confirmed']             = AppMessages::ERROR_PASSWORD_MISMATCH;
+            $messages['password.required'] = AppMessages::ERROR_PASSWORD_REQUIRED;
+            $messages['password.min'] = AppMessages::ERROR_PASSWORD_WEAK;
+            $messages['password.confirmed'] = AppMessages::ERROR_PASSWORD_MISMATCH;
             $messages['password_confirmation.required'] = 'Password confirmation harus diisi';
         }
         if ($request->has('nis')) {
             $rules['nis'] = ['required', 'string', Rule::unique('students', 'nis')->ignore($id)];
             $messages['nis.required'] = 'NIS harus diisi';
-            $messages['nis.unique']   = 'NIS sudah terdaftar';
+            $messages['nis.unique'] = 'NIS sudah terdaftar';
         }
         if ($request->has('sekolah')) {
-            $rules['sekolah'] = 'nullable|string|max:255';
+            $rules['sekolah'] = 'sometimes|string|max:255';
             $messages['sekolah.max'] = 'Nama sekolah terlalu panjang';
         }
         if ($request->has('kelas')) {
-            $rules['kelas'] = 'nullable|string|max:100';
+            $rules['kelas'] = 'sometimes|string|max:100';
             $messages['kelas.max'] = 'Kelas terlalu panjang';
         }
         if ($request->has('alamat')) {
-            $rules['alamat'] = 'nullable|string|max:500';
+            $rules['alamat'] = 'sometimes|string|max:500';
             $messages['alamat.max'] = 'Alamat terlalu panjang';
         }
         if ($request->has('no_hp')) {
-            $rules['no_hp'] = 'nullable|string|max:15';
+            $rules['no_hp'] = 'sometimes|string|max:15';
             $messages['no_hp.max'] = 'Nomor HP terlalu panjang';
         }
-
+        if ($request->hasFile('photo') || $request->has('photo')) {
+            $rules['photo'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+            $messages['photo.image'] = 'File harus berupa gambar';
+            $messages['photo.mimes'] = 'Format gambar harus jpeg, png, jpg, atau gif';
+            $messages['photo.max'] = 'Ukuran gambar maksimal 2MB';
+        }
         if (empty($rules)) {
             return $this->responseError('Tidak ada data yang dapat diupdate', null, 422);
         }
+        $data = $request->validate($rules, $messages);
 
-        $data   = $request->validate($rules, $messages);
+        if ($request->hasFile('photo')) {
+            $student = Student::findOrFail($id);
+            if ($student->user?->photo && file_exists(public_path($student->user->photo))) {
+                @unlink(public_path($student->user->photo));
+            }
+            $photo    = $request->file('photo');
+            $filename = uniqid('siswa_', true) . '.' . $photo->getClientOriginalExtension();
+            $destDir  = public_path('images/siswa');
+            if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+            $photo->move($destDir, $filename);
+            $data['photo'] = 'images/siswa/' . $filename;
+        }
+
         $result = $this->studentService->updateStudent($id, $data);
-
         if (!$result['success']) {
             return $this->responseError($result['error'], null, 500);
         }
@@ -163,9 +208,10 @@ class StudentController extends BaseController {
             'reason.required' => 'Alasan penolakan wajib diisi',
             'reason.max' => 'Alasan maksimal 500 karakter',
         ]);
-        $result = $this->studentService->rejectStudent($id, $data['reason']);
+        $result = $this->studentService->rejectStudent($id, $data['reason'], auth()->id());
         if (!$result['success']) {
-            return $this->responseError($result['error'], null, 400);
+            $status = $result['code'] ?? 400;
+            return $this->responseError($result['error'], null, $status);
         }
         return $this->responseSuccess(
             $result['student'],
@@ -637,13 +683,25 @@ class StudentController extends BaseController {
             'no_hp'           => $student->no_hp,
             'approval_status' => $student->approval_status,
             'rejection_reason'=> $student->rejection_reason ?? null,
+            'rejection_histories' => $student->relationLoaded('rejectionHistories') ? $student->rejectionHistories->map(function ($history) {
+                return [
+                    'id' => $history->id,
+                    'reason' => $history->reason,
+                    'rejected_by' => $history->rejectedBy ? [
+                        'id' => $history->rejectedBy->id,
+                        'name' => $history->rejectedBy->name,
+                        'email' => $history->rejectedBy->email,
+                    ] : null,
+                    'created_at' => $history->created_at,
+                ];
+            })->values()->toArray() : [],
             'is_suspended'    => (bool) $student->user?->is_suspended,
             'user'            => $student->user ? [
-                'id'           => $student->user->id,
-                'name'         => $student->user->name,
-                'email'        => $student->user->email,
-                'role'         => $student->user->role,
-                'is_suspended' => (bool) $student->user->is_suspended,
+                'id'    => $student->user->id,
+                'name'  => $student->user->name,
+                'email' => $student->user->email,
+                'role'  => $student->user->role,
+                'photo_url' => $student->user->photo_url,
             ] : null,
             // Info bus & rute untuk QR card
             'bus'   => $bus ? [

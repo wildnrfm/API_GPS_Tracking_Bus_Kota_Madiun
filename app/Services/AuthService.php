@@ -43,30 +43,31 @@ class AuthService {
                 return ['error' => 'Akun Anda masih menunggu persetujuan admin'];
             }
         }
-        // Generate device_id from userAgent and IP hash
-        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        // Generate device_id from userAgent and IP hash, including user ID to prevent clashing
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
         
         // Determine max devices based on role
         $maxDevices = $user->role === 'admin' ? 2 : 1;
 
         $apiToken = Str::random(60);
 
-        // Check if this exact device already has a session (re-login from same device)
-        $existingSession = DeviceSession::where('user_id', $user->id)
-            ->where('device_id', $deviceId)
-            ->first();
+        // Cek apakah device_id ini sudah punya session (dari user manapun).
+        // Constraint unique ada di device_id saja — bukan kombinasi user_id+device_id.
+        $existingSession = DeviceSession::where('device_id', $deviceId)->first();
 
         if ($existingSession) {
-            // Same device logging in again — just refresh the token & expiry
+            // Device ini sudah punya session — update token & owner-nya.
+            // Ini menangani: re-login dari device yg sama, atau device berpindah user.
             $existingSession->update([
+                'user_id'          => $user->id,
                 'api_token'        => $apiToken,
                 'ip_address'       => $ipAddress,
                 'user_agent'       => $userAgent,
-                'expires_at'       => now()->addDays(2),
+                'expires_at'       => now()->addDays(30),
                 'last_activity_at' => now(),
             ]);
         } else {
-            // New device — evict oldest session if at max capacity
+            // Device baru — evict oldest session jika sudah di kapasitas maksimal
             $activeSessions = DeviceSession::where('user_id', $user->id)
                 ->where('expires_at', '>', now())
                 ->orderBy('created_at', 'asc')
@@ -76,14 +77,14 @@ class AuthService {
                 $activeSessions->first()->delete();
             }
 
-            // Create session for the new device
+            // Buat session baru untuk device ini
             DeviceSession::create([
                 'user_id'          => $user->id,
                 'device_id'        => $deviceId,
                 'api_token'        => $apiToken,
                 'ip_address'       => $ipAddress,
                 'user_agent'       => $userAgent,
-                'expires_at'       => now()->addDays(2),
+                'expires_at'       => now()->addDays(30),
                 'last_activity_at' => now(),
             ]);
         }
@@ -189,7 +190,7 @@ class AuthService {
         return [
             'token'            => $apiToken,
             'user'             => $userData,
-            'token_expires_at' => now()->addDays(2),
+            'token_expires_at' => now()->addDays(30),
             'bus'              => $busData, // null jika bukan driver / belum dapat bus
         ];
     }
@@ -197,6 +198,52 @@ class AuthService {
     public function registerStudent($data) {
         try {
             return DB::transaction(function () use ($data) {
+                $existingUser = User::where('email', $data['email'])
+                    ->where('role', 'siswa')
+                    ->with('student')
+                    ->first();
+
+                if ($existingUser) {
+                    $student = $existingUser->student;
+                    if (!$student) {
+                        return ['success' => false, 'error' => 'Akun siswa tidak valid'];
+                    }
+                    if ($student->approval_status !== 'rejected') {
+                        return ['success' => false, 'error' => 'Email sudah terdaftar'];
+                    }
+
+                    // Pastikan NIS tidak bentrok dengan siswa lain.
+                    $duplicateNis = Student::where('nis', $data['nis'])
+                        ->where('id', '!=', $student->id)
+                        ->exists();
+                    if ($duplicateNis) {
+                        return ['success' => false, 'error' => 'NIS sudah terdaftar'];
+                    }
+
+                    $existingUser->update([
+                        'name'     => $data['name'],
+                        'password' => Hash::make($data['password']),
+                    ]);
+
+                    // Preserve previous rejection_reason in `students` table
+                    // so historical reason remains available even after reapply.
+                    $student->update([
+                        'nis'             => $data['nis'],
+                        'sekolah'         => $data['sekolah'],
+                        'kelas'           => $data['kelas'] ?? 'Belum ditentukan',
+                        'alamat'          => $data['alamat'],
+                        'no_hp'           => $data['no_hp'],
+                        'approval_status' => 'pending',
+                    ]);
+
+                    return [
+                        'success' => true,
+                        'token'   => $existingUser->api_token,
+                        'user'    => $existingUser->fresh(),
+                        'student' => $student->fresh(),
+                    ];
+                }
+
                 $user    = $this->createUser('siswa', $data);
                 $student = Student::create([
                     'user_id' => $user->id,
@@ -228,8 +275,8 @@ class AuthService {
             return false;
         }
         
-        // Generate device_id from userAgent and IP hash
-        $deviceId = hash('sha256', $userAgent . '|' . $ipAddress);
+        // Generate device_id from userAgent and IP hash, including user ID to prevent clashing
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
         
         // Delete specific device session
         DeviceSession::where('user_id', $user->id)
@@ -268,5 +315,37 @@ class AuthService {
             'status'      => 'success',
         ]);
         return ['success' => true, 'user' => $user->fresh()];
+    }
+
+    public function refreshUserToken($user, $ipAddress, $userAgent) {
+        // Generate device_id dari userAgent dan IP, termasuk user ID untuk mencegah tabrakan session
+        $deviceId = hash('sha256', $user->id . '|' . $userAgent . '|' . $ipAddress);
+        
+        // Cari device session yang ada
+        $deviceSession = DeviceSession::where('device_id', $deviceId)
+            ->where('user_id', $user->id)
+            ->first();
+        
+        if ($deviceSession) {
+            // Update expiration ke 30 hari ke depan dan last_activity_at
+            $deviceSession->update([
+                'expires_at'       => now()->addDays(30),
+                'last_activity_at' => now(),
+            ]);
+        } else {
+            // Device session tidak ditemukan, return error
+            return ['error' => 'Device session tidak ditemukan'];
+        }
+        
+        LogActivityAsync::dispatch('token_refreshed', $user->id, [
+            'description' => 'Token user berhasil diperbarui',
+            'status'      => 'success',
+        ]);
+        
+        return [
+            'token'            => $deviceSession->api_token,
+            'token_expires_at' => $deviceSession->expires_at,
+            'message'          => 'Token berhasil diperbarui',
+        ];
     }
 }

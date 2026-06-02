@@ -7,22 +7,25 @@ use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-class Handler extends ExceptionHandler {
+class Handler extends ExceptionHandler
+{
     protected $dontFlash = [
         'password',
         'password_confirmation',
     ];
 
-    public function register(): void {
+    public function register(): void
+    {
         $this->reportable(function (Throwable $e) {});
     }
 
-    public function render($request, Throwable $exception) {
+    public function render($request, Throwable $exception)
+    {
         if ($exception instanceof ModelNotFoundException) {
             return response()->json([
                 'success' => false,
                 'message' => 'Resource tidak ditemukan',
-                'status' => 404
+                'status'  => 404,
             ], 404);
         }
 
@@ -30,7 +33,7 @@ class Handler extends ExceptionHandler {
             return response()->json([
                 'success' => false,
                 'message' => 'Validasi gagal',
-                'errors' => $exception->errors()
+                'errors'  => $exception->errors(),
             ], 422);
         }
 
@@ -41,7 +44,7 @@ class Handler extends ExceptionHandler {
         return response()->json([
             'success' => false,
             'message' => 'Terjadi kesalahan pada server',
-            'error' => config('app.debug') ? $exception->getMessage() : 'Internal server error'
+            'error'   => config('app.debug') ? $exception->getMessage() : 'Internal server error',
         ], 500);
     }
 }

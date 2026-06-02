@@ -2,21 +2,28 @@
 
 namespace App\Exports;
 
-class DriverReportExport {
+class DriverReportExport
+{
     private $reportData;
 
-    public function __construct($reportData) {
+    public function __construct($reportData)
+    {
         $this->reportData = $reportData;
     }
 
-    public function toArray(): array {
+    public function toArray(): array
+    {
         $rows = [];
+
+        // Header laporan
         $rows[] = ['LAPORAN PERJALANAN BUS - DETAIL PENUMPANG'];
         $rows[] = ['Tanggal: ' . $this->reportData['tanggal']];
         $rows[] = ['Bus: ' . $this->reportData['bus_code'] . ' (' . $this->reportData['bus_plate'] . ')'];
         $rows[] = ['Driver: ' . $this->reportData['driver_name'] . ' - ' . $this->reportData['driver_phone']];
         $rows[] = ['Total Penumpang: ' . $this->reportData['total_penumpang']];
         $rows[] = [];
+
+        // Header kolom tabel
         $rows[] = [
             'No.',
             'Nama Penumpang',
@@ -30,6 +37,8 @@ class DriverReportExport {
             'Lat Turun',
             'Lng Turun',
         ];
+
+        // Isi data per penumpang
         foreach ($this->reportData['passengers'] as $index => $passenger) {
             $rows[] = [
                 $index + 1,
@@ -45,6 +54,7 @@ class DriverReportExport {
                 $passenger['lng_turun'] ?? '',
             ];
         }
+
         return $rows;
     }
 }
